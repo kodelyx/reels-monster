@@ -1,7 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # SECRETS — never commit (live account session cookies)
 # ══════════════════════════════════════════════════════════════════════════════
-vendor/*/cookies.json      # live ChatGPT / Google account login — never commit
+# live ChatGPT / Google account login — never commit
+vendor/*/cookies.json
 *.pem
 *.key
 # NOTE: root config.env IS committed — AI_API_KEY is a free-model key (cc.freemodel.dev),
