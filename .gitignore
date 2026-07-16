@@ -1,0 +1,49 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# SECRETS — never commit (real API keys + live session cookies)
+# ══════════════════════════════════════════════════════════════════════════════
+/config.env                # root: holds AI_API_KEY — commit config.env.example instead
+vendor/*/cookies.json      # live ChatGPT / Gemini session tokens
+vendor/*/.env              # bundled-server env (may hold model/creds)
+*.pem
+*.key
+# NOTE: vendor/flow/config.env IS committed on purpose — no secrets (SERVER_API_KEY
+# empty), just DEFAULT_PROJECT + ports the Flow server needs to boot.
+
+# ─── runtime workspace (regenerated per video, never commit) ──────────────────
+project/
+output/
+vendor/*/output/
+
+# ─── bundled native binaries — rebuild from source (see README), don't commit ─
+# macOS-arm64-only, ~30M. Source: kodelyx/chatgpt-free-api + free-gemini-api.
+vendor/*/chatgpt-server
+vendor/*/gemini-server
+
+# ─── bundled Flow server runtime (Python/uv) — regenerated, don't commit ──────
+vendor/flow/.venv/
+vendor/flow/uv.lock
+
+# ─── personal assets (privacy — don't publish) ────────────────────────────────
+profile/avatar.jpg
+profile/profile.json
+profile/topic_history.json
+
+# ─── remotion build artifacts ─────────────────────────────────────────────────
+remotion/node_modules/
+remotion/out/
+remotion/public/avatar
+remotion/public/broll
+remotion/public/sfx
+remotion/public/bg_music.mp3
+remotion/props/caption.json
+
+# ─── logs / runtime cruft ─────────────────────────────────────────────────────
+vendor/*/server.log
+*.log
+
+# ─── python / editor / os cruft ───────────────────────────────────────────────
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+.cc-writes/

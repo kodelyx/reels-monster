@@ -1,0 +1,146 @@
+[
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.003875,
+    "httpOnly": true,
+    "name": "HSID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "storeId": "0",
+    "value": "AlN-Ibd53QIY_UXRC"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.004174,
+    "httpOnly": true,
+    "name": "SSID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "ADFAIhSc0DToz0zzH"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.004297,
+    "name": "APISID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "storeId": "0",
+    "value": "iQkiED-JrTOGf7Vm/ASi-yeVBylCzOJRR2"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.004422,
+    "name": "SAPISID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "TfJEkEySywc9ALUh/AJRRWqt0VDYmzZ-9t"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.004546,
+    "name": "__Secure-1PAPISID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "TfJEkEySywc9ALUh/AJRRWqt0VDYmzZ-9t"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.004768,
+    "name": "__Secure-3PAPISID",
+    "path": "/",
+    "sameSite": "none",
+    "secure": true,
+    "storeId": "0",
+    "value": "TfJEkEySywc9ALUh/AJRRWqt0VDYmzZ-9t"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.005699,
+    "name": "SID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "storeId": "0",
+    "value": "g.a000_wgnyD_n_s4FijM7Lo_B5DgKYD343PXJbyXEMBYpvlmFF7yCvSlnfz2C5Ptgy2hX_ZnXCAACgYKAfsSARASFQHGX2Mi1ZYF8POQg38dGWQhzkxrVBoVAUF8yKpzzT3H5l6Vx1mFkTGbz05Z0076"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.005878,
+    "httpOnly": true,
+    "name": "__Secure-1PSID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "g.a000_wgnyD_n_s4FijM7Lo_B5DgKYD343PXJbyXEMBYpvlmFF7yCEiEOOMmWa8eX2j13rQ2JqQACgYKAVcSARASFQHGX2MiZiEdWNWJY3SFuKJnAphDHhoVAUF8yKqoOFMnNsyYjDNPaDuYu7RW0076"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1818530857.006044,
+    "httpOnly": true,
+    "name": "__Secure-3PSID",
+    "path": "/",
+    "sameSite": "none",
+    "secure": true,
+    "storeId": "0",
+    "value": "g.a000_wgnyD_n_s4FijM7Lo_B5DgKYD343PXJbyXEMBYpvlmFF7yCwRYjnySbxmRS_yQxmHAPvwACgYKARsSARASFQHGX2Mi5E5l95VtFkWdIq1Db8AqhBoVAUF8yKqrmbeuL2vM_ypNHfIe6uHa0076"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1815704636.233111,
+    "httpOnly": true,
+    "name": "__Secure-1PSIDTS",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "sidts-CjEBPWEu2RsrbWuMiuvXraenquOXhF9RZ4Mied45QL9JYPLQGJ7cYHuovABG2brzjHu-EAA"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1815704636.23336,
+    "httpOnly": true,
+    "name": "__Secure-3PSIDTS",
+    "path": "/",
+    "sameSite": "none",
+    "secure": true,
+    "storeId": "0",
+    "value": "sidts-CjEBPWEu2RsrbWuMiuvXraenquOXhF9RZ4Mied45QL9JYPLQGJ7cYHuovABG2brzjHu-EAA"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1815705080.299582,
+    "name": "SIDCC",
+    "path": "/",
+    "sameSite": "unspecified",
+    "storeId": "0",
+    "value": "AKEyXzWeJZ4NYPau9H2N0pvB59UNocgxbdvpqjQcT_RSiRE_Zjeb7R1MUID_914D4dBZ1rIspCjw"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1815705080.299645,
+    "httpOnly": true,
+    "name": "__Secure-1PSIDCC",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "storeId": "0",
+    "value": "AKEyXzWseQ9B0V8vcRzeXE-xfPUtSucA3BTo-mHpHyjPptCCJcvmfR5aj9hNamlkj7fATpUERA"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1815705080.299712,
+    "httpOnly": true,
+    "name": "__Secure-3PSIDCC",
+    "path": "/",
+    "sameSite": "none",
+    "secure": true,
+    "storeId": "0",
+    "value": "AKEyXzXaCJ-TeKZXcxl6CgBvs7yzo2JgRp3hbLnulpOvZnYmJN2P26eIuSiMTTPvJJ8Ps370GMvM"
+  }
+]

@@ -1,0 +1,3 @@
+Silent placeholder SFX. The original popup sound effects were not carried into
+reels-monster (sfx/ only had a README). These 1s silent mp3s let Remotion render
+the popups without 404ing. Drop real sfx mp3s here (same filenames) to get sound.

@@ -1,0 +1,22 @@
+{
+  "name": "ai-video-agent-remotion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Documentary compositor: scene clips + Hindi karaoke captions",
+  "scripts": {
+    "render": "remotion render src/index.ts Documentary ../output/final.mp4",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/google-fonts": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0",
+    "simple-icons": "^16.26.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "typescript": "^5.4.0"
+  }
+}
