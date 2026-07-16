@@ -28,10 +28,9 @@ vendor/
     └── output/
 ```
 
-> **Kyun kuch git-ignored?** Go binaries platform-specific (macOS-arm64) + bade (~30M)
-> hain; `cookies.json` me **live session tokens**; `.venv/` regenerate ho jaata hai.
-> Flow ka Python **source commit hota hai** (chhota, cross-platform) — sirf uska env
-> `uv` locally banata hai.
+> **Kyun kuch git-ignored?** Sirf `cookies.json` (live session tokens) aur `.venv/`
+> (uv regenerate karta hai). Baaki sab commit hota hai — Go binaries, Flow ka Python
+> source, aur `.env`/`config.env` (inme koi secret nahi, sab local settings).
 
 ---
 
@@ -88,8 +87,7 @@ uv sync            # .venv banata hai + deps install (fastapi, uvicorn, ...)
 ```
 
 Iske baad server boot **offline + instant** hota hai (`uv run` cached env use karta
-hai). `uv` na ho to: `pip install -r vendor/flow/requirements.txt` — phir `flow_server`
-`python3` fallback pe khud chala lega.
+hai). `uv` na ho to `python3` fallback chalega (deps global me importable hone chahiye).
 
 ### 2. Chrome extensions load karo (cookies/login sync ke liye)
 

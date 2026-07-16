@@ -34,6 +34,38 @@ Final video: `output/final_trimmed.mp4`
 
 ---
 
+## 🔧 Pehli baar setup (clone ke baad — ye 4 cheez repo me NAHI hain)
+
+Kuch files privacy/size ki wajah se git me nahi hain — clone karne ke baad ek baar
+ye banao, warna pipeline chalega nahi:
+
+**1. AI servers** (ChatGPT + Gemini binaries + Flow env + Chrome login)
+```bash
+# Poora guide: vendor/README.md — binaries build, uv sync, extensions load + login
+cd vendor/flow && uv sync && cd ../..
+```
+
+**2. Apni creator profile** (`profile/profile.json` — kaun ho, kis niche me)
+```bash
+cp profile/profile.example.json profile/profile.json
+# phir profile.json edit karo: creator_name, niche, audience, virality_rules
+```
+
+**3. Apni avatar photo** (`profile/avatar.jpg` — talking-avatar ka face, stage 05)
+```bash
+# apni ek clear front-face photo yahan daalo:
+cp /path/to/your-photo.jpg profile/avatar.jpg
+```
+
+**4. Remotion renderer deps** (stage 10 — React/TS video render)
+```bash
+cd remotion && npm install && cd ..
+```
+
+Bas — ab `python3 core/preflight.py` sab verify kar lega, phir `orchestrator.py`.
+
+---
+
 ## 🧩 Kaise chalta hai (2-layer handover)
 
 Har stage ek subprocess hai (`stages/<name>/run.py`). Orchestrator har stage ke liye:
@@ -96,8 +128,8 @@ reels-monster/
 ├── docs/                # PRD, Architecture, Rules, Phases, Design, Memory
 ├── project/             # generated state (topic→captions→music, state.json) [gitignore]
 ├── output/              # rendered videos [gitignore]
-├── profile/             # avatar.jpg + creator profile
-├── remotion/            # React/TS renderer (public/ me media symlinks)
+├── profile/             # profile.example.json committed; profile.json + avatar.jpg tum banao [gitignore]
+├── remotion/            # React/TS renderer — `npm install` chahiye (node_modules gitignore'd)
 ├── sfx/                 # sound effects
 └── _archive/            # purane dead scripts (reference only)
 ```
