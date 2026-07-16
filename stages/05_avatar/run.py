@@ -12,7 +12,6 @@ Migrated from reel-factory/scripts/avatar_generator.py (logic unchanged; paths v
 """
 import argparse
 import json
-import math
 import shutil
 import subprocess
 import sys
@@ -28,10 +27,16 @@ GENERATOR = STAGE_DIR / "generate_talking_avatar.py"
 
 
 def avatar_duration(narration: str) -> int:
-    # Match clip length to narration so the full line is spoken
-    # (Flow supports 6/8/10s; ~2.3 Hindi words/sec + 1s headroom).
-    needed = math.ceil(len(narration.split()) / 2.3) + 1
-    return 6 if needed <= 6 else (8 if needed <= 8 else 10)
+    # Match clip length to narration so the full line is spoken WITHOUT dead air.
+    # Flow supports only 6/8/10s. Pick the SMALLEST bucket that still fits the
+    # spoken line (~2.3 Hindi words/sec). No +1 headroom — that used to over-size
+    # the clip (e.g. an 8s line got a 10s clip), leaving 1-2s of silence the model
+    # tried to fill by stretching/repeating words, which broke the lip-sync.
+    speech = len(narration.split()) / 2.3
+    for bucket in (6, 8, 10):
+        if speech <= bucket:
+            return bucket
+    return 10
 
 
 def generate_batch(todo, paths: PATHS):

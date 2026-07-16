@@ -33,7 +33,11 @@ def main():
     brief = pre["brief"]
     num_scenes = brief.get("num_scenes", 5)
     scene_seconds = brief.get("scene_seconds", 6)
-    words_per_scene = round(scene_seconds * 2.5)
+    # Match the avatar clip's spoken-rate (2.3 Hindi words/sec, see stage 05).
+    # Aim to FILL the clip (~0.3s shy of its length) so there's no trailing dead
+    # air — an under-filled line makes the avatar model stretch/repeat words and
+    # breaks the lip-sync.
+    words_per_scene = round((scene_seconds - 0.3) * 2.3)
     prompt = fill(read_prompt(STAGE_DIR),
                   num_scenes=str(num_scenes),
                   scene_seconds=str(scene_seconds),
