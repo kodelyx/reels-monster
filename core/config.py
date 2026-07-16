@@ -42,7 +42,11 @@ class PATHS:
 
         # profile inputs
         self.PROFILE_JSON = self.PROFILE / "profile.json"
-        self.AVATAR_IMAGE = self.PROFILE / "avatar.jpg"
+        # Accept either avatar.jpg or avatar.png (whichever the user provided).
+        self.AVATAR_IMAGE = next(
+            (self.PROFILE / f"avatar.{ext}" for ext in ("jpg", "png", "jpeg", "webp")
+             if (self.PROFILE / f"avatar.{ext}").exists()),
+            self.PROFILE / "avatar.jpg")
         self.TOPIC_HISTORY = self.PROFILE / "topic_history.json"
 
         # state + stage outputs (these ARE the handover contract — see contracts.py)
