@@ -1,6 +1,9 @@
 import { AbsoluteFill, Audio, Sequence, interpolate, spring, staticFile, useCurrentFrame } from 'remotion';
+import { loadFont } from '@remotion/google-fonts/Montserrat';
 import * as SI from 'simple-icons';
 import type { PopupConfig } from './types';
+
+const { fontFamily: POPUP_FONT } = loadFont();
 
 // ─────────────────────────────────────────────
 // SOUND SYSTEM
@@ -101,8 +104,8 @@ const ICONS = {
   ),
 };
 
-const CARD = 190;                 // card side (px)
-const RADIUS = 34;                // corner radius
+const CARD = 250;                 // card side (px) — larger for mobile readability
+const RADIUS = 42;                // corner radius
 
 // Base glass card. A premium multi-layer look: deep tinted glass with a soft
 // vertical gradient, heavy blur, and a hairline highlight. Border + inner
@@ -153,21 +156,21 @@ const IconView: React.FC<{ icon: PopupConfig['cards'][number]['icon']; color: st
     const fn = (ICONS as Record<string, ((c?: string) => JSX.Element) | undefined>)[icon.value];
     return fn ? fn(color) : <div style={{ fontSize: size * 0.8, lineHeight: 1 }}>✨</div>;
   }
-  // simpleicon
+  // simpleicon — keep the brand's own color (contract: real logos stay on-brand)
   const si = siBySlug(icon.value);
-  if (!si) return <div style={{ fontSize: size * 0.8, lineHeight: 1 }}>✨</div>;
+  if (!si || !si.path || !si.hex) return <div style={{ fontSize: size * 0.8, lineHeight: 1 }}>✨</div>;
   return (
     <svg viewBox="0 0 24 24" width={size} height={size}>
-      <path fill={color || `#${si.hex}`} d={si.path} />
+      <path fill={`#${si.hex}`} d={si.path} />
     </svg>
   );
 };
 
 // Horizontal slot grid (±250px card spacing). CARD/2 = half card width to center.
 const SLOT_X: Record<string, string> = {
-  left:   `calc(50% - 250px - ${CARD / 2}px)`,
+  left:   `calc(50% - 285px - ${CARD / 2}px)`,
   center: `calc(50% - ${CARD / 2}px)`,
-  right:  `calc(50% + 250px - ${CARD / 2}px)`,
+  right:  `calc(50% + 285px - ${CARD / 2}px)`,
 };
 
 // Renders one scene's popup config: staggered glass cards synced to spoken words + SFX.
@@ -190,12 +193,13 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
         const delay = msToF(c.atMs);
         const sp = spring({ frame: Math.max(0, lf - delay), fps, config: { damping: 12, mass: 0.9 } });
         const since = lf - delay;                        // frames since this card entered
-        const scale = interpolate(sp, [0, 1], [0.62, 1]) * x;
+        const breathe = 1 + Math.sin(lf * 0.07 + i * 1.3) * 0.012;   // subtle idle breathing so holds never look frozen
+        const scale = interpolate(sp, [0, 1], [0.62, 1]) * x * breathe;
         const opacity = sp > 0 ? x : 0;
         const rise = interpolate(sp, [0, 1], [26, 0]);   // slide up into place
         const enterBlur = interpolate(since, [0, 10], [10, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        const floatY = Math.sin(lf * 0.09 + i * 2) * 5;
-        const glowPulse = c.accent ? 0.5 + Math.sin(lf * 0.13) * 0.22 : 0.3;
+        const floatY = Math.sin(lf * 0.09 + i * 2) * 6;
+        const glowPulse = c.accent ? 0.5 + Math.sin(lf * 0.13) * 0.22 : 0.32 + Math.sin(lf * 0.08 + i) * 0.08;
 
         // Specular sheen sweep: a diagonal highlight that glides across once on entry.
         const sheen = interpolate(since, [4, 26], [-140, 140], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
@@ -257,18 +261,18 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
                 filter: 'blur(2px)', pointerEvents: 'none',
               }} />
               <div style={{ filter: `drop-shadow(0 3px 10px ${hexA(c.color, 0.55)})`, display: 'flex' }}>
-                <IconView icon={c.icon} color={c.color} />
+                <IconView icon={c.icon} color={c.color} size={72} />
               </div>
             </div>
 
             <div style={{
-              fontSize: 16, fontWeight: 800, marginTop: 12, color: '#F8FAFC',
-              letterSpacing: 1.4, textAlign: 'center', padding: '0 8px',
-              textShadow: `0 1px 8px ${hexA(c.color, 0.6)}, 0 1px 2px rgba(0,0,0,0.7)`,
+              fontFamily: POPUP_FONT, fontSize: 25, fontWeight: 900, marginTop: 10, color: '#FFFFFF',
+              letterSpacing: 0.5, textAlign: 'center', padding: '0 8px', lineHeight: 1.1,
+              textShadow: `0 2px 10px ${hexA(c.color, 0.7)}, 0 1px 3px rgba(0,0,0,0.9)`,
             }}>{c.label}</div>
             {c.sub && <div style={{
-              fontSize: 11.5, fontWeight: 700, color: hexA(c.color, 0.92), marginTop: 3, letterSpacing: 1.3,
-              textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+              fontFamily: POPUP_FONT, fontSize: 20, fontWeight: 800, color: '#FFFFFF', marginTop: 8, letterSpacing: 0.3,
+              textShadow: `0 1px 6px ${hexA(c.color, 0.75)}, 0 1px 3px rgba(0,0,0,0.9)`,
             }}>{c.sub}</div>}
           </div>
         );
@@ -279,7 +283,7 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
 
 // Public API: renders a scene's data-driven popup overlay. Rendered inside the
 // scene <Sequence>, so useCurrentFrame() is scene-local; each card self-delays via atMs.
-export const PopupAsset: React.FC<{ popup?: PopupConfig; duration: number }> = ({ popup, duration }) => {
+export const PopupAsset: React.FC<{ popup?: PopupConfig; duration: number; fps?: number }> = ({ popup, duration, fps = 30 }) => {
   if (!popup || !popup.cards || popup.cards.length === 0) return null;
-  return <PopupScene config={popup} fps={30} dur={duration} />;
+  return <PopupScene config={popup} fps={fps} dur={duration} />;
 };

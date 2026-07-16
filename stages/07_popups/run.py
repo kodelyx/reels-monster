@@ -190,7 +190,7 @@ def _clamp(v, lo, hi):
 
 def validate_popup(raw: dict, scene_ms: int, valid_sfx_keys: set) -> dict:
     """Coerce the AI output into a safe popup config."""
-    hi = max(0, scene_ms - 400)  # a card must enter with time left to animate + read
+    hi = max(0, scene_ms - 800)  # a card must enter with time left to animate in + stay readable
     cards_in = raw.get("cards", []) if isinstance(raw, dict) else []
     cards = []
     for i, c in enumerate(cards_in[:4]):
