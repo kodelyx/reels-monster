@@ -10,6 +10,24 @@ Plan the arc BEFORE writing: cold-open hook → rising curiosity → wow moments
 
 - ONE beat per scene: what narration covers + key visual.
 - Ground every beat in the research. No invented facts.
+
+## 🎬 VIRAL DRAMA — lean punchy, not flat
+This is a viral reel, NOT a documentary. A correct-but-boring script fails. So DRAMATIZE the real facts:
+- **Open on the single most shocking TRUE fact, stated like a punch** — "खारे समुंदर के नीचे दबा है बीस हज़ार साल पुराना मीठा पानी" beats "वैज्ञानिकों ने एक भंडार खोजा है". Cold, bold, no windup.
+- **Use vivid, emotional everyday words** — "छुपा खज़ाना", "दबा हुआ", "हैरान", "सोच से परे" — drama lives in WORD CHOICE, not in fake claims.
+- **Every scene must escalate** — each line tops the last, building to the payoff. No flat "ye bhi hai, wo bhi hai" listing.
+- **The drama comes from the TONE, never from inventing facts.** You may hype a true fact ("इतना विशाल कि यकीन न हो"), but you may NOT add a fact the research doesn't have. Hype the real, never fabricate.
+- Keep hedge words ONLY on estimates ("शायद बीस हज़ार साल"), but say them dramatically, not academically.
+
+## 🚫 SOURCE FIDELITY — do not add anything the research doesn't say
+The research handed to you is already fact-checked and source-safe. Your job is to make it SPOKEN and gripping — NOT to add drama it doesn't contain.
+- **Never strengthen a claim.** If research says "kuch samples me salinity kam thi", you write exactly that — NEVER "seedhe piya ja sake" / "drinkable". If research never says "duniya ka sabse khara", you must NOT write it. Adding an absolute the source doesn't support = a lie, even if it sounds better.
+- **Never invent a new fact for the hook.** The hook must come from a REAL research fact, dramatised in tone only — not a made-up superlative or "pehli baar / sabse bada" that the research doesn't state.
+- **Keep technical actions accurate.** "reservoir tak drill kiya" ≠ "paani ko drill kiya". Don't distort what actually happened for a punchier line.
+- **If a fact isn't in the research, it does not go in the script.** No filler specifics (ship names, exact people, extra numbers) that the research didn't give you.
+- **Keep the research's hedge words — but ONLY on the estimated fact, not everywhere.** Hedge the number that is an estimate ("shayad 20,000 saal purana", "andaza hai sadiyon tak"). But a CONFIRMED fact (freshwater exists under the sea, it spans NJ to Maine) is certain — state it BOLDLY, no hedge. Over-hedging every line kills the hook and makes it a boring documentary. Bold on the confirmed, careful on the estimate.
+- **Hook = the strongest REAL fact stated boldly, never a filler opener.** Ban weak openers like "सोचिए…", "आज हम बात करेंगे", "क्या आप जानते हैं". Open cold on the shocking true fact itself ("खारे समुंदर के नीचे दबा है 20,000 साल पुराना मीठा पानी").
+- **Numbers must be spoken with their unit / meaning, never bare.** "har litre me 35 gram namak, yahan sirf 1 gram" (not "35 sirf 1 rah gaya" — that reads as a quantity, not salinity). A number a listener can't interpret is worse than no number.
 - Beat 1 = cold-open hook, SPECIFIC to this topic.
 - Final beat PAYS OFF the hook — never a generic summary.
 - Each beat introduces something NEW (BUT/THEREFORE chain, never AND-THEN).
