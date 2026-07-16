@@ -1,7 +1,18 @@
-"""Unified MyInstants Sound Downloader & Manager CLI.
-Handles category-wise downloads, custom file list downloads, trending page downloads,
-and automatically runs flattening & deduplication to maintain a clean flat library."""
+#!/usr/bin/env python3
+"""sound_manager.py — MyInstants SFX downloader & library utility.
 
+Downloads sound effects from MyInstants.com (categories, trending, or custom list),
+deduplicates, and flattens them into the sfx/ directory. Run this once (or periodically)
+to populate sfx/ with real sounds — the pipeline's stage 07 (popups) will then let AI
+pick context-aware SFX from whatever's available.
+
+Usage:
+  python3 sound_manager.py --trending in --pages 5     # trending India sounds
+  python3 sound_manager.py --categories --pages 3       # all categories, 3 pages each
+  python3 sound_manager.py --file my_links.txt           # custom URL list
+
+Output goes to: reels-monster/sfx/
+"""
 import urllib.request
 import re
 import os
@@ -11,9 +22,13 @@ import hashlib
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
-from config import SFX_DIR
-SOUND_EFFECT_DIR = str(SFX_DIR)
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+from core.config import PATHS
+
+SOUND_EFFECT_DIR = str(PATHS(ROOT).SFX)
 
 # Pre-defined categories mapping
 CATEGORY_MAP = {
@@ -34,6 +49,7 @@ CATEGORY_MAP = {
     "trending_india": "https://www.myinstants.com/en/index/in/"
 }
 
+
 # --- MD5 & HELPER METHODS ---
 
 def get_md5(file_path):
@@ -47,6 +63,7 @@ def get_md5(file_path):
     except Exception:
         return None
 
+
 def download_file(url, dest_path):
     """Download a single file."""
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -58,18 +75,20 @@ def download_file(url, dest_path):
     except Exception:
         return False
 
+
 def fetch_mp3_path_from_page(page_url):
     """Fetch individual page HTML and extract the direct MP3 path."""
     req = urllib.request.Request(page_url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             html_content = response.read().decode("utf-8")
-            match = re.search(r"(/media/sounds/[^\'\"\s]+\.mp3)", html_content)
+            match = re.search(r"(/media/sounds/[^\'\"\\s]+\.mp3)", html_content)
             if match:
                 return match.group(1)
     except Exception:
         pass
     return None
+
 
 def scrape_list_page(page_url):
     """Scrape a directory page for all MP3 paths."""
@@ -77,10 +96,11 @@ def scrape_list_page(page_url):
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             body = response.read().decode("utf-8")
-            media_paths = list(set(re.findall(r"/media/sounds/[^\"]+\.mp3", body)))
+            media_paths = list(set(re.findall(r'/media/sounds/[^"]+\.mp3', body)))
             return media_paths
     except Exception:
         return []
+
 
 # --- DEDUPLICATE & FLATTEN ENGINE ---
 
@@ -91,7 +111,7 @@ def run_cleanup_and_merge():
         return
 
     print("\n🧹 Running automatic flattening and deduplication...")
-    
+
     # 1. Collect MD5s of existing flat files inside SOUND_EFFECT_DIR
     existing_hashes = set()
     for file in os.listdir(SOUND_EFFECT_DIR):
@@ -129,7 +149,7 @@ def run_cleanup_and_merge():
             dest_path = os.path.join(SOUND_EFFECT_DIR, dest_filename)
             counter = 1
             name_part, ext_part = os.path.splitext(file)
-            
+
             while os.path.exists(dest_path):
                 existing_md5 = get_md5(dest_path)
                 if existing_md5 == md5:
@@ -154,13 +174,14 @@ def run_cleanup_and_merge():
 
     print(f"🎉 Merge Finished! Added {total_moved} new unique sounds, discarded {total_removed} duplicates.")
 
+
 # --- CONCURRENT TASKS RUNNERS ---
 
 def run_parallel_downloads(tasks):
     """Downloads tasks list in parallel using ThreadPoolExecutor."""
     total = len(tasks)
     success = 0
-    
+
     def run_task(task):
         url, path = task
         if os.path.exists(path) and os.path.getsize(path) > 1000:
@@ -176,6 +197,7 @@ def run_parallel_downloads(tasks):
                     print(f"    📥 Progress: {success}/{total} sounds downloaded.")
     return success
 
+
 # --- MODES ---
 
 def handle_category_mode(max_pages):
@@ -184,7 +206,7 @@ def handle_category_mode(max_pages):
     os.makedirs(temp_dir, exist_ok=True)
 
     print(f"📂 Mode: Category Downloads (max {max_pages} pages per category)")
-    
+
     for cat_name, cat_url in CATEGORY_MAP.items():
         print(f"📁 Processing Category: {cat_name.upper()}...")
         all_paths = []
@@ -205,14 +227,14 @@ def handle_category_mode(max_pages):
 
         run_parallel_downloads(tasks)
 
+
 def handle_trending_mode(region, max_pages):
     """Scrapes and downloads trending sounds for a region (e.g. 'in' or 'us')."""
     temp_dir = os.path.join(SOUND_EFFECT_DIR, ".temp", f"trending_{region}")
     os.makedirs(temp_dir, exist_ok=True)
 
     print(f"📂 Mode: Trending Region '{region.upper()}' (max {max_pages} pages)")
-    
-    # 1. Scrape all links in parallel
+
     all_paths = []
     print(f"  Scanning page links (page 1 to {max_pages})...")
     with ThreadPoolExecutor(max_workers=20) as page_executor:
@@ -224,9 +246,10 @@ def handle_trending_mode(region, max_pages):
 
     all_paths = list(set(all_paths))
     print(f"  Discovered {len(all_paths)} trending sounds. Downloading...")
-    
+
     tasks = [(f"https://www.myinstants.com{path}", os.path.join(temp_dir, path.split("/")[-1])) for path in all_paths]
     run_parallel_downloads(tasks)
+
 
 def handle_file_mode(file_path):
     """Downloads individual sound page links from a text file list."""
@@ -238,48 +261,42 @@ def handle_file_mode(file_path):
     os.makedirs(temp_dir, exist_ok=True)
 
     print(f"📂 Mode: Custom file list ({file_path})")
-    
+
     with open(file_path, "r") as f:
         links = [line.strip() for line in f if line.strip().startswith("https://www.myinstants.com")]
 
     total = len(links)
     print(f"  Loaded {total} URLs. Resolving direct MP3 sources...")
 
-    # We resolve MP3 paths and download
-    tasks = []
     def resolve_and_download(link):
         slug = [p for p in link.split("/") if p][-1]
         dest_path = os.path.join(temp_dir, f"{slug}.mp3")
-        
-        # Resolve
         mp3_path = fetch_mp3_path_from_page(link)
         if not mp3_path:
             clean_slug = re.sub(r"-\d+$", "", slug)
             mp3_path = f"/media/sounds/{clean_slug}.mp3"
-
         url = f"https://www.myinstants.com{mp3_path}"
         download_file(url, dest_path)
 
     with ThreadPoolExecutor(max_workers=16) as resolver:
         futures = resolver.map(resolve_and_download, links)
-        # Simply wait for completion
         for _ in futures:
             pass
+
 
 # --- MAIN CONTROLLER ---
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified Sound Download & Management CLI.")
+    parser = argparse.ArgumentParser(description="SFX Download & Management CLI for reels-monster.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--categories", action="store_true", help="Download sound categories.")
     group.add_argument("--trending", type=str, metavar="REGION", help="Download trending region (e.g. 'in' or 'us').")
     group.add_argument("--file", type=str, metavar="PATH", help="Download from a custom text file list of MyInstants URLs.")
-    
+
     parser.add_argument("--pages", type=int, default=5, help="Number of pages to scan (for categories or trending).")
-    
+
     args = parser.parse_args()
 
-    # Create root dir
     os.makedirs(SOUND_EFFECT_DIR, exist_ok=True)
 
     start_time = time.time()
@@ -295,6 +312,7 @@ def main():
     run_cleanup_and_merge()
 
     print(f"\n🚀 All operations completed in {time.time() - start_time:.1f}s.")
+
 
 if __name__ == "__main__":
     main()

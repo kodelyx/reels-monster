@@ -9,7 +9,7 @@
 - **R2 — Koi hardcoded absolute path nahi.** Har path `PROJECT_ROOT` se derive ho (`core/config.py`). `/Users/akash/...` code me kahin na aaye.
 - **R3 — Handover verify kiye bina aage nahi.** Har stage input `requires` check kare, output `produces` check kare. Fail → rukho, saaf error do, next stage mat chalao.
 - **R4 — Purana `reel-factory/` mat chhedo** jab tak `reels-monster` end-to-end verify na ho. Side-by-side rahega.
-- **R5 — Dead code delete nahi, `_archive/` me.** Reference rehne do.
+- **R5 — Dead code migrate karo ya delete karo.** Useful logic proper stage me port karo, baaki delete. Archive folder mat rakho — reference ki zarurat nahi jab sab migrated ho.
 
 ---
 
@@ -45,6 +45,8 @@
 - **R15** — Prompt files `stages/NN/prompt.md` me rahein, code me hardcode nahi. Placeholders `{key}`/`{{key}}` `ai_client`/orchestrator bhare.
 - **R16** — LLM se JSON expect karte waqt `expect_json=True` + validate; kabhi bharosa mat karo ki AI ne sahi shape diya — `contracts.py` se check.
 - **R17** — Visual/creative hard-rules (dark/low-key lighting, no text/logo in frames, t2v default, max 4 parallel gen) [Design.md](./Design.md) me — un se deviate mat karo.
+- **R18** — Stage 06 me avatar audio **-14 LUFS normalize** hota hai (consistent loudness) aur **phonetic merge rules** apply hote hain (ए+आई→AI, चैट+जीपीटी→ChatGPT). Naye merge patterns zarurat ke hisaab se `MERGE_RULES` list me add karo.
+- **R19** — Stage 07 me SFX selection **AI-driven** hai — `sfx/` folder runtime pe scan hota hai, har file ka mood detect hota hai, AI narration/popup ke context se pick karta hai. Naye sounds chahiye to `stages/07_popups/sound_manager.py` chalao.
 
 ---
 

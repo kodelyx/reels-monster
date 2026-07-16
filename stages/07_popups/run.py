@@ -5,6 +5,10 @@ Reads caption.json and, per scene, asks the AI to design 2-4 glass-card icon pop
 synced to the spoken words, writing them into each scene's `popup` field.
 Rendered by remotion/src/PopupAsset.tsx. Runs AFTER stage 06, BEFORE render.
 
+SFX selection is AI-driven: the sfx/ directory is scanned at runtime, each file is
+categorized by name into mood/purpose labels, and the full catalog is passed to the
+AI prompt so it picks the most fitting sound per popup based on narration + context.
+
   requires:  project/scripting/caption.json  (scenes + pages with tokens)
   produces:  project/scripting/caption.json  (each scene gains a `popup` field)
 
@@ -14,6 +18,7 @@ Migrated from reel-factory/scripts/popup_designer.py (logic unchanged; paths via
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -25,10 +30,75 @@ from core.ai_client import get_api_keys, call_ai, log
 # Icons the Remotion renderer understands natively (curated SVG set).
 CURATED_SVG = {"chatgpt", "robot", "check", "code", "brain", "human",
                "gear", "shield", "question", "google", "microsoft", "amazon"}
-# Sound effects available in PopupAsset's SFX map.
-SFX_KEYS = {"pop", "popSoft", "popHard", "swoosh", "swooshHard", "shine",
-            "shineAnime", "impact", "boom", "rise", "ding", "success", "alert"}
 SLOTS = ("left", "center", "right")
+
+# ─── Dynamic SFX catalog ──────────────────────────────────────────────────────
+
+# Mood/purpose keywords found in filenames → human-readable category for the AI.
+_SFX_MOOD_MAP = [
+    (r"boom|explosion|blast",       "dramatic impact / explosion"),
+    (r"impact|hit|punch|slam",      "hard impact / hit"),
+    (r"whoosh|swoosh|swipe|woosh",  "motion swoosh / whoosh"),
+    (r"pop|bubble|plop",            "pop / bubble"),
+    (r"riser|rise|build",           "tension build-up / riser"),
+    (r"shine|sparkle|glitter|glow", "shine / sparkle / glow"),
+    (r"ding|bell|chime|notification", "notification / ding"),
+    (r"success|win|victory|achieve", "success / victory"),
+    (r"alert|alarm|warning|siren",  "alert / warning"),
+    (r"transition|swipe|slide",     "transition / slide"),
+    (r"click|tap|button",           "click / tap"),
+    (r"magic|spell|enchant",        "magic / spell"),
+    (r"horror|scary|creep",         "horror / suspense"),
+    (r"laugh|funny|comedy",         "comedy / laugh"),
+    (r"anime|manga|cartoon",        "anime-style"),
+    (r"metal|gear|solid|mgs",       "cinematic alert"),
+    (r"cinematic|epic|trailer",     "cinematic / epic"),
+    (r"drum|beat|kick",             "drum hit / beat"),
+    (r"error|fail|wrong",           "error / fail"),
+    (r"cash|money|coin|ka-ching",   "money / cash register"),
+    (r"water|splash|drip",          "water / splash"),
+    (r"glass|break|shatter",        "glass break / shatter"),
+]
+
+
+def _categorize_sfx(filename: str) -> str:
+    """Infer a mood/purpose label from the SFX filename."""
+    name = filename.lower().replace("-", " ").replace("_", " ")
+    for pattern, label in _SFX_MOOD_MAP:
+        if re.search(pattern, name):
+            return label
+    return "general / misc"
+
+
+def scan_sfx_library(sfx_dir: Path) -> dict:
+    """Scan sfx/ folder and build {key: {file, mood}} catalog.
+
+    Each .mp3 file becomes a selectable SFX key (stem of the filename). The AI
+    gets both the key name and a mood description so it can make a contextual pick.
+    Returns dict like: {"cinematic-boom": {"file": "cinematic-boom.mp3", "mood": "dramatic impact"}}.
+    """
+    catalog = {}
+    if not sfx_dir.exists():
+        return catalog
+    for f in sorted(sfx_dir.glob("*.mp3")):
+        if f.stat().st_size < 500:   # skip broken / near-empty files
+            continue
+        key = f.stem                 # filename without .mp3
+        catalog[key] = {
+            "file": f.name,
+            "mood": _categorize_sfx(f.name),
+        }
+    return catalog
+
+
+def format_sfx_catalog_for_prompt(catalog: dict) -> str:
+    """Build a human-readable SFX menu for the AI prompt."""
+    if not catalog:
+        return "(no SFX files available — skip sfx array)"
+    lines = []
+    for key, info in catalog.items():
+        lines.append(f'  "{key}" → {info["mood"]}')
+    return "\n".join(lines)
 
 PROMPT = """You are a motion-graphics director for a vertical (9:16) Hindi explainer reel.
 For ONE scene you design floating glass "popup" cards that pop up over the B-roll to
@@ -42,6 +112,9 @@ SPOKEN WORDS WITH TIMING (scene-local milliseconds; this is your timing spine):
 
 VIDEO COLOR GRADING / THEME (cards must match this look):
 {palette}
+
+AVAILABLE SOUND EFFECTS (pick the best match for each popup's feeling):
+{sfx_catalog}
 
 DESIGN RULES:
 1. COUNT IS STORY-DRIVEN — never pad. Choose the number of cards from what the narration
@@ -75,9 +148,18 @@ DESIGN RULES:
 6. SLOTS: assign "left","center","right". Do not reuse a slot (2 cards -> left+right;
    3 cards -> left+center+right).
 7. LABEL: 1-2 SHORT words (English or Hinglish), UPPERCASE feel. Optional "sub" = 1 short line.
-8. SFX: add one "sfx" entry per card at the same atMs. Choose by feeling from this list ONLY:
-   {sfx}. entrance->swoosh/pop, sub-item->popSoft/ding, payoff/reveal->shineAnime/success/boom,
-   warning->alert, build-up->rise.
+8. SFX (CRITICAL — context-aware selection):
+   Add one "sfx" entry per card at the same atMs. READ the AVAILABLE SOUND EFFECTS list
+   above carefully. Pick the SFX whose MOOD best matches what the popup MEANS:
+   - Card about danger/threat/attack → pick an "alert / warning" or "dramatic impact" sound
+   - Card about success/achievement/win → pick a "success / victory" or "shine" sound
+   - Card about speed/motion/launch → pick a "motion swoosh" sound
+   - Card about reveal/highlight/hero → pick a "shine / sparkle" or "cinematic" sound
+   - Card about money/business → pick a "money / cash register" sound if available
+   - Card about error/fail → pick an "error / fail" sound if available
+   - Generic entrance → pick a "pop" or "transition" sound
+   - Build-up/stat reveal → pick a "tension build-up / riser" sound
+   Use the EXACT key name from the list (the text before "→"). Do NOT invent keys.
 
 Return ONLY this JSON (no markdown, no commentary):
 {{
@@ -88,25 +170,25 @@ Return ONLY this JSON (no markdown, no commentary):
       "color": "#9333EA", "atMs": 1850, "slot": "right", "accent": true}}
   ],
   "sfx": [
-    {{"atMs": 420, "key": "swoosh", "volume": 0.75}},
-    {{"atMs": 1850, "key": "shineAnime", "volume": 0.8}}
+    {{"atMs": 420, "key": "swoosh-simple-66449", "volume": 0.75}},
+    {{"atMs": 1850, "key": "anime-shine-sound-effect_QP4mAaX", "volume": 0.8}}
   ]
 }}"""
 
 
-def build_prompt(narration: str, local_tokens: list) -> str:
+def build_prompt(narration: str, local_tokens: list, sfx_catalog_text: str) -> str:
     return (PROMPT
             .replace("{narration}", narration or "(no narration)")
             .replace("{tokens}", json.dumps(local_tokens, ensure_ascii=False))
             .replace("{curated}", ", ".join(sorted(CURATED_SVG)))
-            .replace("{sfx}", ", ".join(sorted(SFX_KEYS))))
+            .replace("{sfx_catalog}", sfx_catalog_text))
 
 
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def validate_popup(raw: dict, scene_ms: int) -> dict:
+def validate_popup(raw: dict, scene_ms: int, valid_sfx_keys: set) -> dict:
     """Coerce the AI output into a safe popup config."""
     hi = max(0, scene_ms - 400)  # a card must enter with time left to animate + read
     cards_in = raw.get("cards", []) if isinstance(raw, dict) else []
@@ -159,12 +241,21 @@ def validate_popup(raw: dict, scene_ms: int) -> dict:
             "accent": i == 1,
         })
 
+    # Pick a default SFX key for fallback (first swoosh-like or first available).
+    default_entrance = next((k for k in valid_sfx_keys if "swoosh" in k), None)
+    default_accent   = next((k for k in valid_sfx_keys if "shine" in k or "anime" in k), None)
+    if not default_entrance:
+        default_entrance = next(iter(valid_sfx_keys), None)
+    if not default_accent:
+        default_accent = default_entrance
+
     sfx = []
     for s in (raw.get("sfx", []) if isinstance(raw, dict) else [])[:6]:
         if not isinstance(s, dict):
             continue
-        key = s.get("key")
-        if key not in SFX_KEYS:
+        key = s.get("key", "")
+        # Accept the key if it matches an available SFX file stem
+        if key not in valid_sfx_keys:
             continue
         try:
             at = int(_clamp(int(s.get("atMs", 0)), 0, hi))
@@ -177,18 +268,59 @@ def validate_popup(raw: dict, scene_ms: int) -> dict:
             vol = 0.7
         sfx.append({"atMs": at, "key": key, "volume": _clamp(vol, 0.1, 1.0)})
 
-    # Fallback: one swoosh per card entrance if the AI gave no valid sfx
-    if not sfx:
+    # Fallback: one sound per card entrance if the AI gave no valid sfx
+    if not sfx and default_entrance:
         for i, c in enumerate(cards):
-            sfx.append({"atMs": c["atMs"], "key": "swoosh" if i == 0 else "shineAnime",
+            sfx.append({"atMs": c["atMs"],
+                        "key": default_entrance if i == 0 else (default_accent or default_entrance),
                         "volume": 0.75})
 
     return {"cards": cards, "sfx": sfx}
 
 
-def fallback_popup(scene_ms: int) -> dict:
+def fallback_popup(scene_ms: int, valid_sfx_keys: set) -> dict:
     """Used when a scene has no tokens (alignment failed) or the AI call fails."""
-    return validate_popup({}, scene_ms)
+    return validate_popup({}, scene_ms, valid_sfx_keys)
+
+
+def _sync_remotion_sfx_map(sfx_catalog: dict, remotion_src: Path):
+    """Update PopupAsset.tsx SFX map to include all sfx/ files so Remotion can play them.
+
+    Reads the current SFX object, adds any new keys from the catalog, and rewrites the
+    block. This means if you add new .mp3 files to sfx/, they automatically become
+    available to Remotion on the next stage-07 run — no manual tsx editing needed.
+    """
+    popup_tsx = remotion_src / "PopupAsset.tsx"
+    if not popup_tsx.exists() or not sfx_catalog:
+        return
+    content = popup_tsx.read_text(encoding="utf-8")
+
+    # Find the SFX block: from "const SFX = {" to the closing "};"
+    match = re.search(r"(const SFX = \{)(.*?)(\};)", content, re.DOTALL)
+    if not match:
+        return
+
+    # Parse existing entries to preserve comments/formatting for known keys
+    existing_keys = set(re.findall(r"^\s*([\w-]+)\s*[:]", match.group(2), re.MULTILINE))
+    # Also handle quoted keys like 'swooshHard'
+    existing_keys.update(re.findall(r"['\"]?([\w-]+)['\"]?\s*:", match.group(2)))
+
+    new_keys = set(sfx_catalog.keys()) - existing_keys
+    if not new_keys:
+        return  # nothing new
+
+    # Append new entries before the closing brace
+    additions = "\n  // ── auto-added by stage 07 ──\n"
+    for key in sorted(new_keys):
+        info = sfx_catalog[key]
+        # TSX keys with hyphens need quoting
+        safe_key = f"'{key}'" if "-" in key else key
+        additions += f"  {safe_key}: 'sfx/{info['file']}',  // {info['mood']}\n"
+
+    insert_pos = match.end(2)
+    new_content = content[:insert_pos] + additions + content[insert_pos:]
+    popup_tsx.write_text(new_content, encoding="utf-8")
+    log(f"   🔧 Added {len(new_keys)} new SFX keys to PopupAsset.tsx")
 
 
 def main():
@@ -200,6 +332,15 @@ def main():
     config = load_config(paths.ROOT)
     keys = get_api_keys(config)
     model = ai_model(config)
+
+    # ── Scan sfx/ library and build catalog ──
+    sfx_catalog = scan_sfx_library(paths.SFX)
+    valid_sfx_keys = set(sfx_catalog.keys())
+    sfx_catalog_text = format_sfx_catalog_for_prompt(sfx_catalog)
+    log(f"🔊 SFX library: {len(sfx_catalog)} sounds available")
+
+    # Sync Remotion's PopupAsset.tsx SFX map so it can play any new sounds
+    _sync_remotion_sfx_map(sfx_catalog, paths.REMOTION / "src")
 
     cap_path = paths.CAPTION
     if not cap_path.exists():
@@ -222,17 +363,19 @@ def main():
         narration = page.get("text", "")
 
         if not local_tokens:
-            scene["popup"] = fallback_popup(scene_ms)
+            scene["popup"] = fallback_popup(scene_ms, valid_sfx_keys)
             log(f"   scene {scene.get('index', i)}: no tokens → generic popup")
             continue
 
         try:
-            raw = call_ai(keys, config, model, build_prompt(narration, local_tokens),
+            raw = call_ai(keys, config, model,
+                          build_prompt(narration, local_tokens, sfx_catalog_text),
                           max_tokens=1500, label=f"Popup scene {scene.get('index', i)}")
-            scene["popup"] = validate_popup(raw, scene_ms)
-            log(f"   scene {scene.get('index', i)}: {len(scene['popup']['cards'])} cards")
+            scene["popup"] = validate_popup(raw, scene_ms, valid_sfx_keys)
+            log(f"   scene {scene.get('index', i)}: {len(scene['popup']['cards'])} cards, "
+                f"{len(scene['popup']['sfx'])} sfx")
         except Exception as e:
-            scene["popup"] = fallback_popup(scene_ms)
+            scene["popup"] = fallback_popup(scene_ms, valid_sfx_keys)
             log(f"   ⚠️ scene {scene.get('index', i)} AI failed ({str(e)[:80]}) → generic popup")
 
     cap_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

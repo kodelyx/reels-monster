@@ -27,6 +27,42 @@ from core.config import PATHS, load_config, chatgpt_url
 
 RAPID_EDIT = STAGE_DIR.parents[1] / "core" / "rapid_edit.py"
 
+# Phonetic merge rules: consecutive Devanagari tokens that should display as one
+# English term in karaoke captions (e.g. ए+आई → "AI").
+MERGE_RULES = [
+    (["ए", "आई", "एजेंट्स"],   "AI Agents"),
+    (["ए", "आई", "एजेंट"],     "AI Agent"),
+    (["ए", "आई", "टोकन्स"],    "AI Tokens"),
+    (["ए", "आई", "टीम"],       "AI Team"),
+    (["ए", "आई"],               "AI"),
+    (["चैट", "जी", "पी", "टी"], "ChatGPT"),
+    (["चैट", "जीपीटी"],         "ChatGPT"),
+]
+
+
+def apply_merges(tokens: list) -> list:
+    """Merge consecutive tokens matching phonetic patterns (longest-first)."""
+    result = []
+    i = 0
+    while i < len(tokens):
+        matched = False
+        for pattern, label in MERGE_RULES:
+            n = len(pattern)
+            window = [t.get("devanagari", t["text"]) for t in tokens[i:i+n]]
+            if window == pattern:
+                result.append({
+                    "text": label,
+                    "devanagari": " ".join(window),
+                    "startMs": tokens[i]["startMs"],
+                    "endMs": tokens[i + n - 1]["endMs"],
+                })
+                i += n
+                matched = True
+                break
+        if not matched:
+            result.append(tokens[i])
+            i += 1
+    return result
 
 def log(scene_num, msg):
     print(f"🎙️ [Scene {scene_num}] {msg}", file=sys.stderr)
@@ -108,6 +144,33 @@ STRICT RULES:
 
     audio_path.unlink(missing_ok=True)
     return align_data
+
+
+def normalize_audio(video_path, scene_num):
+    """Normalize avatar audio to -14.0 LUFS for consistent loudness across scenes.
+
+    Uses ffmpeg loudnorm filter with video copy (no re-encode). Non-fatal: if
+    normalization fails the original trimmed clip is kept unchanged.
+    """
+    temp_path = video_path.with_name(f"{video_path.stem}_norm.mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-filter_complex", "[0:a]loudnorm=I=-14:TP=-1.0[a]",
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        str(temp_path)
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        video_path.unlink()
+        temp_path.rename(video_path)
+        log(scene_num, "🔊 Audio normalized to -14.0 LUFS")
+    except subprocess.CalledProcessError as e:
+        log(scene_num, f"⚠️ Audio normalization failed (non-fatal): "
+                       f"{e.stderr[-200:] if e.stderr else e}")
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def main():
@@ -199,6 +262,9 @@ def main():
             shutil.move(str(clean_video), str(raw_video))
             log(scene_num, "✅ Trimming complete. Clean video saved!")
 
+        # Normalize audio loudness to -14.0 LUFS (consistent volume across scenes).
+        normalize_audio(raw_video, scene_num)
+
         trimmed_duration_ms = int((speech_end - speech_start) * 1000)
         tokens = []
         for w in words:
@@ -207,6 +273,9 @@ def main():
             tokens.append({"text": (w.get("roman") or w["w"]).strip(),
                            "devanagari": w["w"],
                            "startMs": w_start_ms, "endMs": w_end_ms})
+
+        # Merge phonetic splits: ए+आई → "AI", चैट+जी+पी+टी → "ChatGPT", etc.
+        tokens = apply_merges(tokens)
 
         all_pages.append((scene_num,
                           {"text": dialogue, "startMs": 0,

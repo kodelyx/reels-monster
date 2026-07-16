@@ -47,8 +47,8 @@ reels-monster/
 │   ├── 03_scenes/         { SKILL.md, run.py, prompt.md }
 │   ├── 04_music_prompt/   { SKILL.md, run.py, prompt.md }
 │   ├── 05_avatar/         { SKILL.md, run.py, generate_talking_avatar.py }
-│   ├── 06_process/        { SKILL.md, run.py }        # trim + caption align
-│   ├── 07_popups/         { SKILL.md, run.py, prompt.md }
+│   ├── 06_process/        { SKILL.md, run.py }        # trim + normalize audio + caption align + phonetic merges
+│   ├── 07_popups/         { SKILL.md, run.py, prompt.md, sound_manager.py }  # popups + AI-driven SFX
 │   ├── 08_broll/          { SKILL.md, run.py }
 │   ├── 09_music/          { SKILL.md, run.py }
 │   ├── 10_render/         { SKILL.md, run.py }         # remotion invoke
@@ -66,7 +66,7 @@ reels-monster/
 │   ├── music/      { bg_music.mp3 }
 │   └── intervals/  { scene_N_intervals.json }
 │
-├── _archive/                  # dead scripts (reference ke liye, DELETE nahi)
+├── _archive/                  # REMOVED — sab useful logic stages me port ho gaya
 └── cleanup.py                 # project/ reset karne ke liye
 ```
 
@@ -137,8 +137,8 @@ Har stage ka ek entry:
 | **03 scenes** | `pre_production.json`, `script.json` (`segments`) | `project/scripting/scenes.json` `{scenes[{video_prompt,...}]}` | AI |
 | **04 music_prompt** | `pre_production.json`, `script.json` | `project/scripting/music_prompt.txt` (60-80 words) | AI |
 | **05 avatar** | `script.json` (`segments`), `profile/avatar.jpg` | `project/avatar/scene_N.mp4` (N = #segments) | Flow API |
-| **06 process** | `project/avatar/scene_N.mp4`, `script.json` | trimmed `scene_N.mp4` + `project/scripting/caption.json` (`scenes`,`pages`) + `project/intervals/*` | ChatGPT + ffmpeg |
-| **07 popups** | `caption.json` (narration+tokens) | `caption.json` me har scene ka `popup` field | AI |
+| **06 process** | `project/avatar/scene_N.mp4`, `script.json` | trimmed `scene_N.mp4` (LUFS-normalized) + `project/scripting/caption.json` (`scenes`,`pages`, phonetic merges applied) + `project/intervals/*` | ChatGPT + ffmpeg |
+| **07 popups** | `caption.json` (narration+tokens) | `caption.json` me har scene ka `popup` field (AI-driven SFX from `sfx/` scan) | AI |
 | **08 broll** | `scenes.json` (`video_prompt`) | `project/broll/scene_N_a.mp4`, `scene_N_b.mp4` | Flow API |
 | **09 music** | `music_prompt.txt` | `project/music/bg_music.mp3` | Gemini MCP |
 | **10 render** | `caption.json`, `avatar/*`, `broll/*`, `music/bg_music.mp3` | `output/final.mp4` | Remotion/Bun |
