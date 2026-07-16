@@ -326,16 +326,17 @@ export const Documentary: React.FC<DocumentaryProps> = ({ fps, scenes, pages, st
     }
 
     const videoElement = (
-      <AbsoluteFill style={{ backgroundColor: 'black', display: 'flex', flexDirection: 'column', padding: 40, gap: 30, justifyContent: 'center' }}>
+      <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 38%, #23262f 0%, #14161c 45%, #05060a 100%)', display: 'flex', flexDirection: 'column', padding: 36, gap: 36 }}>
         {/* Top Half: B-roll */}
         <div style={{
           width: '100%',
-          height: '45%',
+          flex: 1,
+          minHeight: 0,
           position: 'relative',
           overflow: 'hidden',
-          borderRadius: 32,
-          border: '4px solid white',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
+          borderRadius: 26,
+          border: '2px solid rgba(255, 255, 255, 0.22)',
+          boxShadow: '0 22px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(120, 150, 200, 0.10), inset 0 1px 24px rgba(255, 255, 255, 0.06)',
         }}>
           {wrappedBroll}
         </div>
@@ -343,16 +344,17 @@ export const Documentary: React.FC<DocumentaryProps> = ({ fps, scenes, pages, st
         {/* Bottom Half: Avatar */}
         <div style={{
           width: '100%',
-          height: '45%',
+          flex: 1,
+          minHeight: 0,
           position: 'relative',
           overflow: 'hidden',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
           backgroundColor: '#000',
-          borderRadius: 32,
-          border: '4px solid white',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
+          borderRadius: 26,
+          border: '2px solid rgba(255, 255, 255, 0.22)',
+          boxShadow: '0 22px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(120, 150, 200, 0.10), inset 0 1px 24px rgba(255, 255, 255, 0.06)',
         }}>
           {scene.avatarSrc ? (
             <OffthreadVideo
