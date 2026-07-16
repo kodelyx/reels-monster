@@ -34,7 +34,8 @@ def main():
     prompt = fill(read_prompt(STAGE_DIR), topic=topic["topic"], duration=str(duration))
 
     log("▶️  Stage 01: Pre-Production")
-    result = call_ai(keys, config, model, prompt, max_tokens=4096, label="Pre-Production")
+    result = call_ai(keys, config, model, prompt, max_tokens=4096, label="Pre-Production",
+                     web_search=5)
     save_json(paths.PRE_PRODUCTION, result)
     log(f"💾 Saved {paths.rel(paths.PRE_PRODUCTION)}")
 
