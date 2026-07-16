@@ -62,6 +62,7 @@ Beginning → mystery → tension → scientific discovery → cinematic wonder 
 Specify ALL of the following naturally inside the prompt:
 - **Genre**: cinematic documentary / atmospheric science documentary / modern minimal soundtrack
 - **Instruments**: deep cinematic pads, evolving analog synth textures, soft piano, low strings, french horns, orchestral percussion, sub bass, atmospheric drones. Avoid overusing percussion.
+- **Story-specific organic texture**: weave in ONE subtle earthy/tactile layer that matches THIS story's world (e.g. for underwater/geology: hydrophone-style low rumble, distant water-drip resonance, sediment-grain granular hiss) so the score has the film's own sonic identity, not a generic documentary bed.
 - **Tempo**: Specify BPM (e.g. 72 BPM, 80 BPM, 90 BPM). Choose the best pacing for narration.
 - **Dynamics**: Starts with sparse ambient textures, slowly builds tension with low strings and synth pulses, reaches a restrained cinematic peak during the central scientific reveal, then resolves into warm orchestral harmony.
 - **Mood**: mysterious, intelligent, tense, scientific, immersive, awe inspiring, hopeful.
