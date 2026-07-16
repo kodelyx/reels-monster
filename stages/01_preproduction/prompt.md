@@ -24,12 +24,21 @@ SCENE LENGTH IS STORY-DRIVEN, NOT FIXED. Do NOT force a fixed seconds-per-scene.
 # PART B — Research Dossier
 
 Research the topic with BBC Earth / Nat Geo rigor:
+- **USE WEB SEARCH.** Base every fact on a real source you actually found. Do NOT recall or guess facts from memory — if you did not find it via search, do NOT write it. No invented numbers, dates, names, or quotes.
 - Facts only. If disputed, say so.
 - Prefer specific numbers, dates, names, places over vague claims.
 - Include 3-5 "wow" details even well-informed viewers don't know.
 - Include visual/sensory details (what things LOOK like) — the film crew needs them.
 - For shorts (≤30s): 3-5 punchy facts, 1-2 wow moments.
 - For long (60s+): 8-12 core facts, full timeline, 3-5 wow moments.
+
+## Voice-ready facts (CRITICAL — ye research aage narration banega)
+The final narration is a young Indian telling a friend a story over chai — NOT a news report. So write research the scriptwriter can actually speak:
+- **NO jargon / corporate words.** Never write "ecosystem", "deployment", "perception systems", "roadmap", "diversify", "commercialize". Say it the way a normal person would.
+- **Every fact needs a scale/comparison** so the number MEANS something — not just "1000 per month" but why that is shocking.
+- **Keep it tight:** for a short, only the 3-4 STRONGEST facts. Cut anything that repeats another fact or drifts from the main story.
+- **One viewer-centric angle:** include at least one "why should I care / how does this touch my life" hook.
+- **Qualify unconfirmed claims** as "the company's plan" / "announced", never as a guaranteed future fact.
 
 ---
 

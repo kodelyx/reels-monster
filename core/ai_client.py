@@ -88,11 +88,47 @@ def looks_like_rate_limit(err: Exception) -> bool:
     return any(k in text for k in keywords)
 
 
+def _insert_missing_commas(raw: str) -> str:
+    """Local models sometimes drop the comma between two JSON values
+    (e.g. `"a" "b"` or `} {`). Insert a comma wherever a value that has
+    already closed is directly followed by the start of the next value,
+    ignoring anything inside strings."""
+    out, in_str, esc = [], False, False
+
+    def prev_nonspace():
+        return next((c for c in reversed(out) if not c.isspace()), "")
+
+    for ch in raw:
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch in '"{[':
+            # a closed value (string/array/object) followed by a new value → comma
+            p = prev_nonspace()
+            if p and p in '"]}':
+                out.append(",")
+            if ch == '"':
+                in_str = True
+        out.append(ch)
+    return "".join(out)
+
+
 def _repair_json(raw: str):
-    """Best-effort repair of a truncated JSON string by closing open brackets."""
-    # Trim a trailing partial token / dangling comma
+    """Best-effort repair of a malformed JSON string from a local backend:
+    insert missing commas between values, then close any open brackets."""
     s = raw.rstrip()
     s = re.sub(r",\s*$", "", s)
+    try:
+        return json.loads(_insert_missing_commas(s))
+    except json.JSONDecodeError:
+        pass
+    s = _insert_missing_commas(s)
     # Walk the string, tracking open brackets outside of strings
     stack, in_str, esc = [], False, False
     for ch in s:
