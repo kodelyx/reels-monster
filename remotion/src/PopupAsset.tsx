@@ -27,6 +27,21 @@ const SFX = {
   success:   'sfx/success-chime.mp3',              // success chime
   // CTA / Warning
   alert:     'sfx/metal-gear-solid-alert_LjQWbMe.mp3', // clean sharp alert beep
+
+  // ── auto-added by stage 07 ──
+  'anime-shine-sound-effect_QP4mAaX': 'sfx/anime-shine-sound-effect_QP4mAaX.mp3',  // shine / sparkle / glow
+  'bubble-pop': 'sfx/bubble-pop.mp3',  // pop / bubble
+  'cinematic-boom': 'sfx/cinematic-boom.mp3',  // dramatic impact / explosion
+  'ding-sound-effect_1': 'sfx/ding-sound-effect_1.mp3',  // notification / ding
+  'fast-whoosh': 'sfx/fast-whoosh.mp3',  // motion swoosh / whoosh
+  'metal-gear-solid-alert_LjQWbMe': 'sfx/metal-gear-solid-alert_LjQWbMe.mp3',  // alert / warning
+  pop_1: 'sfx/pop_1.mp3',  // pop / bubble
+  'popular-riser': 'sfx/popular-riser.mp3',  // pop / bubble
+  'shine-brightness-sound-effect-85192': 'sfx/shine-brightness-sound-effect-85192.mp3',  // shine / sparkle / glow
+  'success-chime': 'sfx/success-chime.mp3',  // notification / ding
+  'sudden-impact-1': 'sfx/sudden-impact-1.mp3',  // hard impact / hit
+  'swoosh-simple-66449': 'sfx/swoosh-simple-66449.mp3',  // motion swoosh / whoosh
+  'transition-sfx-1-62531': 'sfx/transition-sfx-1-62531.mp3',  // transition / slide
 };
 
 // SfxAudio helper: runs inside Sequence context so localFrame is reset to 0
@@ -86,15 +101,30 @@ const ICONS = {
   ),
 };
 
+const CARD = 190;                 // card side (px)
+const RADIUS = 34;                // corner radius
+
+// Base glass card. A premium multi-layer look: deep tinted glass with a soft
+// vertical gradient, heavy blur, and a hairline highlight. Border + inner
+// highlights + sheen are layered on top as separate elements per card.
 const G: React.CSSProperties = {
-  background: 'rgba(10,12,22,0.78)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
-  border: '2.5px solid rgba(255,255,255,0.25)', borderRadius: '28px',
+  background: 'linear-gradient(160deg, rgba(22,26,40,0.82) 0%, rgba(9,11,20,0.88) 100%)',
+  backdropFilter: 'blur(30px) saturate(1.3)', WebkitBackdropFilter: 'blur(30px) saturate(1.3)',
+  borderRadius: `${RADIUS}px`,
   display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', position: 'absolute',
+  overflow: 'hidden',
 };
 
-function ep(lf: number, dur: number, len = 12): number {
+function ep(lf: number, dur: number, len = 14): number {
   const s = dur - len;
   return lf >= s ? interpolate(lf - s, [0, len], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 1;
+}
+
+// hex + alpha byte (0..1) → "#rrggbbaa"
+function hexA(hex: string, a: number): string {
+  const h = (hex || '#60A5FA').replace('#', '').slice(0, 6).padEnd(6, '0');
+  const aa = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0');
+  return `#${h}${aa}`;
 }
 
 // ─────────────────────────────────────────────
@@ -133,11 +163,11 @@ const IconView: React.FC<{ icon: PopupConfig['cards'][number]['icon']; color: st
   );
 };
 
-// Horizontal slot grid (matches the proven ±250px card spacing). 90 = half card width.
+// Horizontal slot grid (±250px card spacing). CARD/2 = half card width to center.
 const SLOT_X: Record<string, string> = {
-  left:   'calc(50% - 250px - 90px)',
-  center: 'calc(50% - 90px)',
-  right:  'calc(50% + 250px - 90px)',
+  left:   `calc(50% - 250px - ${CARD / 2}px)`,
+  center: `calc(50% - ${CARD / 2}px)`,
+  right:  `calc(50% + 250px - ${CARD / 2}px)`,
 };
 
 // Renders one scene's popup config: staggered glass cards synced to spoken words + SFX.
@@ -158,31 +188,88 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
 
       {cards.map((c, i) => {
         const delay = msToF(c.atMs);
-        const sp = spring({ frame: Math.max(0, lf - delay), fps, config: { damping: 11 } });
-        const scale = interpolate(sp, [0, 1], [0.5, 1]) * x;
+        const sp = spring({ frame: Math.max(0, lf - delay), fps, config: { damping: 12, mass: 0.9 } });
+        const since = lf - delay;                        // frames since this card entered
+        const scale = interpolate(sp, [0, 1], [0.62, 1]) * x;
         const opacity = sp > 0 ? x : 0;
-        const floatY = Math.sin(lf * 0.1 + i * 2) * 4;
-        const glow = c.accent ? 0.45 + Math.sin(lf * 0.14) * 0.15 : 0.28;
+        const rise = interpolate(sp, [0, 1], [26, 0]);   // slide up into place
+        const enterBlur = interpolate(since, [0, 10], [10, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        const floatY = Math.sin(lf * 0.09 + i * 2) * 5;
+        const glowPulse = c.accent ? 0.5 + Math.sin(lf * 0.13) * 0.22 : 0.3;
+
+        // Specular sheen sweep: a diagonal highlight that glides across once on entry.
+        const sheen = interpolate(since, [4, 26], [-140, 140], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        const sheenOp = interpolate(since, [4, 15, 26], [0, 0.5, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
         // Vertical nudge if a slot repeats, so cards never overlap
         const slot = c.slot in SLOT_X ? c.slot : (['left', 'center', 'right'][i % 3] as 'left' | 'center' | 'right');
         const seen = slotSeen[slot] ?? 0;
         slotSeen[slot] = seen + 1;
-        const topOffset = seen === 0 ? 0 : (seen % 2 === 1 ? 110 : -110) * Math.ceil(seen / 2);
+        const topOffset = seen === 0 ? 0 : (seen % 2 === 1 ? 116 : -116) * Math.ceil(seen / 2);
 
         return (
           <div key={`card${i}`} style={{
             ...G,
-            left: SLOT_X[slot], top: `calc(50% - 90px + ${topOffset}px)`,
-            width: 180, height: 180,
-            transform: `scale(${scale}) translateY(${floatY}px)`,
+            left: SLOT_X[slot], top: `calc(50% - ${CARD / 2}px + ${topOffset}px)`,
+            width: CARD, height: CARD,
+            transform: `scale(${scale}) translateY(${floatY + rise}px)`,
             opacity,
-            border: c.accent ? `2.5px solid ${c.color}88` : (G.border as string),
-            boxShadow: `0 22px 50px rgba(0,0,0,0.6), 0 0 ${Math.round(45 * glow)}px ${c.color}${c.accent ? '66' : '33'}`,
+            filter: enterBlur > 0.2 ? `blur(${enterBlur}px)` : undefined,
+            boxShadow: [
+              '0 26px 60px rgba(0,0,0,0.65)',                                   // ambient drop
+              `0 0 ${Math.round(56 * glowPulse)}px ${hexA(c.color, c.accent ? 0.5 : 0.28)}`, // color bloom
+              `inset 0 1px 0 rgba(255,255,255,0.18)`,                           // top inner light
+            ].join(', '),
           }}>
-            <IconView icon={c.icon} color={c.color} />
-            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 8, color: c.color, letterSpacing: 1.2, textAlign: 'center', padding: '0 6px' }}>{c.label}</div>
-            {c.sub && <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', marginTop: 2, letterSpacing: 1 }}>{c.sub}</div>}
+            {/* gradient hairline border (mask ring) */}
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: RADIUS, padding: c.accent ? 2.5 : 1.6,
+              background: `linear-gradient(150deg, ${hexA(c.color, c.accent ? 0.95 : 0.6)}, rgba(255,255,255,0.28) 45%, ${hexA(c.color, 0.15)})`,
+              WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+              WebkitMaskComposite: 'xor', maskComposite: 'exclude', pointerEvents: 'none',
+            }} />
+            {/* accent hero: rotating conic aura ring */}
+            {c.accent && (
+              <div style={{
+                position: 'absolute', inset: -2, borderRadius: RADIUS + 2, opacity: 0.5 + Math.sin(lf * 0.13) * 0.2,
+                background: `conic-gradient(from ${lf * 3}deg, ${hexA(c.color, 0)}, ${hexA(c.color, 0.85)} 120deg, ${hexA(c.color, 0)} 240deg)`,
+                filter: 'blur(9px)', pointerEvents: 'none',
+              }} />
+            )}
+            {/* top glossy highlight */}
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, height: '46%', borderRadius: `${RADIUS}px ${RADIUS}px 0 0`,
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0))', pointerEvents: 'none',
+            }} />
+            {/* specular sheen sweep on entry */}
+            <div style={{
+              position: 'absolute', top: 0, bottom: 0, width: 70, left: `calc(50% + ${sheen}px)`,
+              transform: 'skewX(-18deg)', opacity: sheenOp,
+              background: 'linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.55), rgba(255,255,255,0))',
+              pointerEvents: 'none',
+            }} />
+
+            {/* icon with glowing halo disc */}
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <div style={{
+                position: 'absolute', width: 118, height: 118, borderRadius: '50%',
+                background: `radial-gradient(circle, ${hexA(c.color, c.accent ? 0.42 : 0.28)} 0%, ${hexA(c.color, 0)} 70%)`,
+                filter: 'blur(2px)', pointerEvents: 'none',
+              }} />
+              <div style={{ filter: `drop-shadow(0 3px 10px ${hexA(c.color, 0.55)})`, display: 'flex' }}>
+                <IconView icon={c.icon} color={c.color} />
+              </div>
+            </div>
+
+            <div style={{
+              fontSize: 16, fontWeight: 800, marginTop: 12, color: '#F8FAFC',
+              letterSpacing: 1.4, textAlign: 'center', padding: '0 8px',
+              textShadow: `0 1px 8px ${hexA(c.color, 0.6)}, 0 1px 2px rgba(0,0,0,0.7)`,
+            }}>{c.label}</div>
+            {c.sub && <div style={{
+              fontSize: 11.5, fontWeight: 700, color: hexA(c.color, 0.92), marginTop: 3, letterSpacing: 1.3,
+              textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+            }}>{c.sub}</div>}
           </div>
         );
       })}

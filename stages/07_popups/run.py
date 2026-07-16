@@ -229,17 +229,27 @@ def validate_popup(raw: dict, scene_ms: int, valid_sfx_keys: set) -> dict:
             "accent": bool(c.get("accent", False)),
         })
 
-    # Ensure at least 2 cards
-    while len(cards) < 2:
-        i = len(cards)
+    # Respect the AI's story-driven count (1-3). Only synthesize a generic card
+    # if the AI returned NOTHING — never pad a strong single card with a filler
+    # "SMART/AI" card (the prompt itself says one well-timed card beats three weak
+    # ones). Padding was injecting off-topic cards and stacking them in one slot.
+    if not cards:
         cards.append({
-            "icon": {"type": "svg", "value": "robot" if i == 0 else "brain"},
-            "label": "AI" if i == 0 else "SMART",
-            "color": "#9333EA" if i == 0 else "#60A5FA",
-            "atMs": int(_clamp(int(scene_ms * (0.2 + 0.3 * i)), 0, hi)),
-            "slot": SLOTS[i % 3],
-            "accent": i == 1,
+            "icon": {"type": "svg", "value": "brain"},
+            "label": "KEY FACT",
+            "color": "#60A5FA",
+            "atMs": int(_clamp(int(scene_ms * 0.3), 0, hi)),
+            "slot": "center",
+            "accent": True,
         })
+
+    # De-duplicate slots so two cards never share one (would overlap-stack).
+    used = set()
+    free = [s for s in SLOTS]
+    for c in cards:
+        if c["slot"] in used:
+            c["slot"] = next((s for s in free if s not in used), c["slot"])
+        used.add(c["slot"])
 
     # Pick a default SFX key for fallback (first swoosh-like or first available).
     default_entrance = next((k for k in valid_sfx_keys if "swoosh" in k), None)
