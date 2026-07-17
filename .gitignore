@@ -22,6 +22,9 @@ vendor/flow/uv.lock
 
 # ─── personal assets (privacy — don't publish) ────────────────────────────────
 profile/avatar.jpg
+profile/avatar.png
+profile/avatar.jpeg
+profile/avatar.webp
 profile/profile.json
 profile/topic_history.json
 
@@ -33,6 +36,15 @@ remotion/public/broll
 remotion/public/sfx
 remotion/public/bg_music.mp3
 remotion/props/caption.json
+
+# ─── build / render caches (regenerated, huge — never commit) ─────────────────
+.cache/
+.remotion/
+*.egg-info/
+
+# ─── generated runtime output (per-video, not source) ─────────────────────────
+vendor/flow/media-id.js
+vendor/gemini/music_raw_body.txt
 
 # ─── logs / runtime cruft ─────────────────────────────────────────────────────
 vendor/*/server.log
