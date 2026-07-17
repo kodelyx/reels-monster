@@ -17,8 +17,18 @@ export const KaraokeCaptions: React.FC<{
   const {fps, width, height} = useVideoConfig();
   const ms = (frame / fps) * 1000;
 
-  // Find the active page
-  const activePage = pages.find(p => ms >= p.startMs && ms <= p.endMs + 100);
+  // Find the active page. Adjacent scenes overlap on the timeline by the
+  // transition length (Stage 06 offsets pages by duration-overlap), so during a
+  // transition BOTH the outgoing and incoming page match `ms`. Pick the most
+  // recently started one — the incoming scene is what's fading in and starting
+  // to speak, so its captions should take over immediately (find() would return
+  // the outgoing page and hold the new scene's first keyword back by the overlap).
+  let activePage: CaptionPage | undefined;
+  for (const p of pages) {
+    if (ms >= p.startMs && ms <= p.endMs + 100) {
+      if (!activePage || p.startMs > activePage.startMs) activePage = p;
+    }
+  }
   if (!activePage) return null;
 
   const allTokens = activePage.tokens;
@@ -111,7 +121,7 @@ export const KaraokeCaptions: React.FC<{
                 transition: 'transform 0.08s ease, color 0.08s ease',
               }}
             >
-              {token.text}
+              {token.text.replace(/\b\p{L}/gu, (c) => c.toUpperCase())}
             </span>
           );
         })}

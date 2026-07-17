@@ -13,7 +13,6 @@ Run:  python3 stages/11_final_trim/run.py -p /path/to/reels-monster
 Same engine as stage 06's silence trim (core/rapid_edit.py) — README Step 9.
 """
 import argparse
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,9 +38,15 @@ def main():
 
     config = Path(args.config) if args.config else (paths.INTERVALS / "final.json")
     if not config.exists():
-        log(f"ℹ️  No trim config ({paths.rel(config)}); copying final.mp4 → final_trimmed.mp4 unchanged.")
-        shutil.copy2(paths.FINAL, paths.FINAL_TRIMMED)
-        log(f"✅ {paths.rel(paths.FINAL_TRIMMED)}")
+        # No trim to apply — final_trimmed.mp4 would be a byte-for-byte copy of
+        # final.mp4 (a wasted ~24 MB duplicate). Point it at final.mp4 with a
+        # relative symlink instead: anything expecting output/final_trimmed.mp4
+        # still resolves to the exact same video, with no second render/copy.
+        log(f"ℹ️  No trim config ({paths.rel(config)}); linking final_trimmed.mp4 → final.mp4 (no duplicate).")
+        if paths.FINAL_TRIMMED.exists() or paths.FINAL_TRIMMED.is_symlink():
+            paths.FINAL_TRIMMED.unlink()
+        paths.FINAL_TRIMMED.symlink_to(paths.FINAL.name)  # relative: same output/ dir
+        log(f"✅ {paths.rel(paths.FINAL_TRIMMED)} → {paths.FINAL.name}")
         return
 
     cmd = ["python3", str(RAPID_EDIT),

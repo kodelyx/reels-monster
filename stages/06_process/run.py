@@ -616,25 +616,37 @@ def main():
               f"caption.json NOT written (would be incomplete). Fix & re-run stage 06.")
         sys.exit(1)
 
-    # Compile global caption.json (scene offsets applied to page/token times).
+    # Compile global caption.json. Remotion places each scene on the render
+    # timeline with a transition OVERLAP: every scene after the first starts
+    # `overlapFrames` BEFORE the previous one ends (Documentary.tsx computes
+    # sceneFrom = prevFrom + prevDuration - overlap). So the caption offset must
+    # advance by (duration - overlap) per scene, NOT the full duration — else the
+    # captions drift later and later, one overlap-worth per transition (a 4-scene
+    # reel ends ~1.2s behind the voice). We advance in FRAMES, exactly like the
+    # renderer, so the caption timeline lands on the same frames as the scenes.
+    OVERLAP_FRAMES = 12  # MUST equal style.overlapFrames written below
     print("\n📦 Compiling final caption.json props...")
-    global_time_ms = 0
     final_pages = []
     all_pages.sort(key=lambda x: x[0])
     scene_updates.sort(key=lambda x: x["index"])
 
-    for scene_num, page, duration_ms in all_pages:
-        shifted = {"text": page["text"], "startMs": global_time_ms,
-                   "endMs": global_time_ms + duration_ms, "tokens": []}
+    offset_frames = 0
+    for idx, (scene_num, page, duration_ms) in enumerate(all_pages):
+        offset_ms = round(offset_frames / 30 * 1000)
+        shifted = {"text": page["text"], "startMs": offset_ms,
+                   "endMs": offset_ms + duration_ms, "tokens": []}
         for token in page["tokens"]:
             shifted["tokens"].append({
                 "text": token["text"],
                 "devanagari": token.get("devanagari", token["text"]),
-                "startMs": global_time_ms + token["startMs"],
-                "endMs": global_time_ms + token["endMs"],
+                "startMs": offset_ms + token["startMs"],
+                "endMs": offset_ms + token["endMs"],
                 "show": token.get("show", True)})
         final_pages.append(shifted)
-        global_time_ms += duration_ms
+        # Advance like Remotion: full scene length minus the overlap it shares
+        # with the NEXT scene (every scene except the last overlaps the next).
+        dur_frames = int((duration_ms / 1000) * 30)
+        offset_frames += dur_frames - (OVERLAP_FRAMES if idx < len(all_pages) - 1 else 0)
 
     demo_data = {
         "fps": 30, "width": 1080, "height": 1920,
