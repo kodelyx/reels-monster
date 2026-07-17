@@ -175,15 +175,57 @@ TASK: Pick the indices of the KEYWORDS to keep on screen — nouns, numbers, nam
 
 # Devanagari number-words — used to detect which tokens form a spoken number so we
 # can offer them to the AI for digit conversion (e.g. आठ+सौ → "800").
+#
+# This is the COMPLETE 0–100 set (a finite space — filled once, so no video ever
+# needs a word added later), plus scale words (सौ/हज़ार/लाख/करोड़…) and the common
+# fraction-multipliers (सवा/डेढ़/ढाई/पौने/आधा). Spelling variants are included on
+# the same line. Anything outside this list is still caught by _is_number_token()
+# below via a digit-character check, so detection never silently misses a number.
 _NUMBER_WORDS = {
-    "शून्य", "एक", "दो", "तीन", "चार", "पांच", "पाँच", "छह", "छः", "सात", "आठ",
-    "नौ", "दस", "ग्यारह", "बारह", "तेरह", "चौदह", "पंद्रह", "सोलह", "सत्रह",
-    "अठारह", "उन्नीस", "बीस", "पच्चीस", "तीस", "पैंतीस", "चालीस", "पचास",
-    "साठ", "सत्तर", "अस्सी", "नब्बे", "सौ", "हज़ार", "हजार", "लाख", "करोड़",
-    "छिहत्तर", "इक्कीस", "बाईस", "तेईस", "चौबीस", "छब्बीस", "सत्ताईस", "अट्ठाईस",
-    "उनतीस", "इकतीस", "बत्तीस", "अड़तीस", "उनतालीस", "इकतालीस", "पैंतालीs",
-    "पैंतालीस", "छियालीस", "सैंतालीस", "अड़तालीस", "उनचास", "इक्यावन",
+    # 0–20
+    "शून्य", "सुन्न", "एक", "दो", "तीन", "चार", "पांच", "पाँच", "छह", "छः",
+    "सात", "आठ", "नौ", "दस", "ग्यारह", "बारह", "तेरह", "चौदह", "पंद्रह",
+    "पन्द्रह", "सोलह", "सत्रह", "अठारह", "अट्ठारह", "उन्नीस",
+    # 20–29
+    "बीस", "इक्कीस", "इकीस", "बाईस", "तेईस", "चौबीस", "पच्चीस", "छब्बीस",
+    "सत्ताईस", "अट्ठाईस", "उनतीस", "उनत्तीस",
+    # 30–39
+    "तीस", "इकतीस", "इकत्तीस", "बत्तीस", "तैंतीस", "चौंतीस", "पैंतीस", "छत्तीस",
+    "सैंतीस", "अड़तीस", "उनतालीस", "उनचालीस",
+    # 40–49
+    "चालीस", "इकतालीस", "बयालीस", "तैंतालीस", "चौवालीस", "चवालीस", "पैंतालीस",
+    "छियालीस", "सैंतालीस", "अड़तालीस", "उनचास", "उनन्चास",
+    # 50–59
+    "पचास", "इक्यावन", "बावन", "तिरेपन", "तिरपन", "चौवन", "चवन", "पचपन",
+    "छप्पन", "सत्तावन", "अट्ठावन", "उनसठ",
+    # 60–69
+    "साठ", "इकसठ", "बासठ", "तिरसठ", "तिरेसठ", "चौंसठ", "पैंसठ", "छियासठ",
+    "सड़सठ", "अड़सठ", "उनहत्तर",
+    # 70–79
+    "सत्तर", "इकहत्तर", "बहत्तर", "तिहत्तर", "चौहत्तर", "पचहत्तर", "छिहत्तर",
+    "सतहत्तर", "अठहत्तर", "उन्यासी", "उन्नासी",
+    # 80–89
+    "अस्सी", "इक्यासी", "बयासी", "तिरासी", "चौरासी", "पचासी", "छियासी",
+    "सत्तासी", "अट्ठासी", "नवासी",
+    # 90–100
+    "नब्बे", "इक्यानवे", "बानवे", "तिरानवे", "चौरानवे", "पचानवे", "छियानवे",
+    "सत्तानवे", "अट्ठानवे", "निन्यानवे", "सौ",
+    # scale words
+    "हज़ार", "हजार", "लाख", "करोड़", "करोड", "अरब", "खरब",
+    # fraction / multiplier words
+    "आधा", "आधे", "सवा", "डेढ़", "डेढ", "ढाई", "पौने", "पौना",
 }
+
+# Any Unicode digit (Devanagari ०-९ or ASCII 0-9) already sitting in a token means
+# it's number-ish too — covers numbers a word-list can't (e.g. "20%", "3.5", or a
+# number the aligner already emitted as digits). Detection = in the word-set OR
+# contains a digit, so an unlisted spoken number is never silently skipped.
+def _is_number_token(tok: dict) -> bool:
+    dev = (tok.get("devanagari") or "").strip().rstrip("।,.?!%")
+    if dev in _NUMBER_WORDS:
+        return True
+    text = f"{tok.get('devanagari', '')} {tok.get('text', '')}"
+    return any(ch.isdigit() for ch in text)
 
 
 def format_numbers(tokens: list, dialogue: str, keys, config, model) -> list:
@@ -198,19 +240,14 @@ def format_numbers(tokens: list, dialogue: str, keys, config, model) -> list:
     """
     if not tokens:
         return tokens
-    # Find consecutive runs of number-word tokens.
+    # Find consecutive runs of number tokens (word-list OR digit-bearing).
     runs = []
     i = 0
     while i < len(tokens):
-        dev = tokens[i].get("devanagari", "").strip().rstrip("।,.?!")
-        if dev in _NUMBER_WORDS:
+        if _is_number_token(tokens[i]):
             j = i
-            while j < len(tokens):
-                d = tokens[j].get("devanagari", "").strip().rstrip("।,.?!")
-                if d in _NUMBER_WORDS:
-                    j += 1
-                else:
-                    break
+            while j < len(tokens) and _is_number_token(tokens[j]):
+                j += 1
             runs.append((i, j))  # [i, j)
             i = j
         else:
@@ -223,7 +260,7 @@ def format_numbers(tokens: list, dialogue: str, keys, config, model) -> list:
     run_desc = []
     for ri, (a, b) in enumerate(runs):
         spoken = " ".join(tokens[k].get("devanagari", "") for k in range(a, b))
-        roman = " ".join(tokens[k]["text"] for k in range(a, b))
+        roman = " ".join(tokens[k].get("text", "") for k in range(a, b))
         run_desc.append(f'{ri}. spoken="{spoken}" (roman="{roman}")')
     listing = "\n".join(run_desc)
     prompt = f"""You are a viral Hindi reel caption editor. In the sentence below, some spoken number-words should be shown on screen as DIGITS — digits are read instantly, spelled-out numbers slow the viewer down.
@@ -263,8 +300,9 @@ TASK: For each group, give the best on-screen DISPLAY form:
                 merged["text"] = disp
                 merged["devanagari"] = " ".join(tokens[k].get("devanagari", "")
                                                 for k in range(i, b))
-                merged["startMs"] = tokens[i]["startMs"]
-                merged["endMs"] = tokens[b - 1]["endMs"]
+                merged["startMs"] = tokens[i].get("startMs", 0)
+                merged["endMs"] = tokens[b - 1].get("endMs",
+                                                    tokens[i].get("startMs", 0))
                 # If ANY word in the run was a shown keyword, the digit stays shown.
                 merged["show"] = any(tokens[k].get("show", True) for k in range(i, b))
                 out.append(merged)
