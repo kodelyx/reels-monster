@@ -5,8 +5,11 @@
 vendor/*/cookies.json
 *.pem
 *.key
-# NOTE: root config.env IS committed — AI_API_KEY is a free-model key (cc.freemodel.dev),
-# no billing. vendor/flow/config.env too (no secrets, just project ID + ports).
+# .env holds ALL keys incl. the paid ElevenLabs key → NEVER commit.
+# Committed template lives in .env.example (placeholders only).
+.env
+config.env
+# vendor/flow/config.env too (no secrets, just project ID + ports).
 
 # ─── runtime workspace (regenerated per video, never commit) ──────────────────
 project/

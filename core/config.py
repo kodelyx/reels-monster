@@ -95,7 +95,10 @@ def load_config(project_root) -> dict:
     path key is found it is ignored with a warning (paths now come from PATHS).
     """
     config = {}
-    env_file = Path(project_root).resolve() / "config.env"
+    root = Path(project_root).resolve()
+    env_file = root / ".env"
+    if not env_file.exists():
+        env_file = root / "config.env"   # legacy name — back-compat
     if env_file.exists():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -113,7 +116,7 @@ def load_config(project_root) -> dict:
                 "GEMINI_MUSIC_URL", "GEMINI_MCP_BIN",
                 "GEMINI_SERVER_BIN", "GEMINI_SERVER_DIR",
                 "CHATGPT_SERVER_BIN", "CHATGPT_SERVER_DIR",
-                "FLOW_SERVER_DIR"):
+                "FLOW_SERVER_DIR", "ELEVENLABS_API_KEY"):
         if os.environ.get(key):
             config[key] = os.environ[key]
 
@@ -141,6 +144,12 @@ def flow_server_dir(config: dict) -> str:
 
 def chatgpt_url(config: dict) -> str:
     return config.get("CHATGPT_SERVER_URL", "http://localhost:9225")
+
+
+def elevenlabs_api_key(config: dict) -> str:
+    """ElevenLabs API key (from config.env — git-ignored, holds paid keys). Empty ⇒
+    stage 06 falls back to the local ChatGPT bridge for word-timing."""
+    return config.get("ELEVENLABS_API_KEY", "").strip()
 
 
 def chatgpt_server_bin(config: dict) -> str:

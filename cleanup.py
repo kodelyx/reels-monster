@@ -13,7 +13,7 @@ Cleaned:
 
 Never touched:
     stages/, core/, docs/, _archive/, profile/, sfx/, remotion/ (apne cache chhod ke),
-    config.env, README.md
+    config.env, .env, README.md
 
 Usage:
     python3 cleanup.py            # sirf dikhao kya stale hai
@@ -91,7 +91,7 @@ def main():
 
     if not args.clean:
         print("\nDry run only — kuch delete nahi hua. `--clean` se hatao.")
-        print("Protected: stages/, core/, docs/, _archive/, profile/, sfx/, remotion/, config.env, README.md")
+        print("Protected: stages/, core/, docs/, _archive/, profile/, sfx/, remotion/, .env, README.md")
         return
 
     print("\n🧹 Cleaning...")

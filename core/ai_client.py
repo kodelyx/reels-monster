@@ -37,7 +37,9 @@ def log(msg):
 def load_env_config(project_dir: Path) -> dict:
     """Read config.env key=value pairs; environment variables override."""
     config = {}
-    env_file = Path(project_dir) / "config.env"
+    env_file = Path(project_dir) / ".env"
+    if not env_file.exists():
+        env_file = Path(project_dir) / "config.env"   # legacy name — back-compat
     if env_file.exists():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()

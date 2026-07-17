@@ -3,6 +3,8 @@ export type CaptionToken = {
   devanagari?: string;   // original Devanagari word (kept for debugging/merges)
   startMs: number;
   endMs: number;
+  show?: boolean;        // keyword-caption flag: false ⇒ hidden (filler word).
+                         // Absent ⇒ treated as true (back-compat with old JSON).
 };
 
 // One karaoke "page": 3-4 words shown on a single line, active word highlighted.

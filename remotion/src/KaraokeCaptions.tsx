@@ -21,8 +21,14 @@ export const KaraokeCaptions: React.FC<{
   const activePage = pages.find(p => ms >= p.startMs && ms <= p.endMs + 100);
   if (!activePage) return null;
 
-  const tokens = activePage.tokens;
-  if (!tokens || tokens.length === 0) return null;
+  const allTokens = activePage.tokens;
+  if (!allTokens || allTokens.length === 0) return null;
+
+  // Keyword captions: show only the words tagged show:true (viral-reel style —
+  // punchy keywords, not the whole sentence). Absent flag ⇒ shown (back-compat:
+  // old caption.json with no `show` renders the full sentence exactly as before).
+  const tokens = allTokens.filter((t) => t.show !== false);
+  if (tokens.length === 0) return null;
 
   // Chunk tokens into groups of 3 words
   const chunkSize = 3;
@@ -31,13 +37,15 @@ export const KaraokeCaptions: React.FC<{
     chunks.push(tokens.slice(i, i + chunkSize));
   }
 
-  // Find the active chunk
+  // Find the active chunk. Each chunk stays visible from its first word's start
+  // until the NEXT chunk's first word starts — so during the filler-word gaps
+  // (hidden words) the last keyword group holds instead of flickering off.
   let activeChunk = chunks[0];
-  for (const chunk of chunks) {
-    const chunkStart = chunk[0].startMs;
-    const chunkEnd = chunk[chunk.length - 1].endMs;
-    if (ms >= chunkStart && ms <= chunkEnd + 80) {
-      activeChunk = chunk;
+  for (let c = 0; c < chunks.length; c++) {
+    const chunkStart = chunks[c][0].startMs;
+    const nextStart = c + 1 < chunks.length ? chunks[c + 1][0].startMs : Infinity;
+    if (ms >= chunkStart && ms < nextStart) {
+      activeChunk = chunks[c];
       break;
     }
   }
