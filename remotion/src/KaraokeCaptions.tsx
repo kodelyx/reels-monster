@@ -48,22 +48,27 @@ export const KaraokeCaptions: React.FC<{
     }
   }
 
-  // Active group: visible from its first word's start until the NEXT group's
-  // first word starts, so it holds through the gap instead of flickering off.
-  let activeGroup = groups[0];
+  // Show the whole active group at once — no word-by-word pop-in (that made a
+  // single word flash alone, then re-appear with the next, looking like a
+  // duplicate). The gold highlight still moves word-to-word inside the group.
+  //
+  // A group is on screen from just before its first word until either a short
+  // hold after its last word OR the next group takes over — whichever comes
+  // first. So adjacent groups hand off seamlessly, but during a real pause
+  // (filler / hidden words) the screen goes BLANK instead of holding stale text.
+  const LEAD_MS = 120;
+  const HOLD_MS = 350;
+  let visible: typeof tokens = [];
   for (let g = 0; g < groups.length; g++) {
-    const groupStart = groups[g][0].startMs;
-    const nextStart = g + 1 < groups.length ? groups[g + 1][0].startMs : Infinity;
-    if (ms >= groupStart && ms < nextStart) {
-      activeGroup = groups[g];
+    const grp = groups[g];
+    const start = grp[0].startMs - LEAD_MS;
+    const nextStart = g + 1 < groups.length ? groups[g + 1][0].startMs - LEAD_MS : Infinity;
+    const end = Math.min(grp[grp.length - 1].endMs + HOLD_MS, nextStart);
+    if (ms >= start && ms < end) {
+      visible = grp;
       break;
     }
   }
-
-  // Progressive reveal: within the active group show only words already spoken
-  // (a small lead so a word lands just as it's said). Nothing appears early.
-  const LEAD_MS = 120;
-  const visible = activeGroup.filter((t) => ms >= t.startMs - LEAD_MS);
   if (visible.length === 0) return null;
 
   const vertical = height > width;
