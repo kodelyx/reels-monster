@@ -116,7 +116,7 @@ def load_config(project_root) -> dict:
                 "GEMINI_MUSIC_URL", "GEMINI_MCP_BIN",
                 "GEMINI_SERVER_BIN", "GEMINI_SERVER_DIR",
                 "CHATGPT_SERVER_BIN", "CHATGPT_SERVER_DIR",
-                "FLOW_SERVER_DIR", "ELEVENLABS_API_KEY"):
+                "FLOW_SERVER_DIR", "ELEVENLABS_API_KEY", "ENABLE_POPUPS"):
         if os.environ.get(key):
             config[key] = os.environ[key]
 

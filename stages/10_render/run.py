@@ -14,6 +14,7 @@ New thin wrapper around the `bunx remotion render` command from reel-factory's R
 (the old flow ran it by hand). Logic = same command, paths via core.
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 
 STAGE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(STAGE_DIR.parents[1]))
-from core.config import PATHS
+from core.config import PATHS, load_config
 from core.ai_client import log
 
 # public/ symlink → project source (so Remotion always sees fresh media).
@@ -61,6 +62,41 @@ def ensure_symlinks(paths: PATHS):
     props.symlink_to(Path("..") / ".." / "project" / "scripting" / "caption.json")
 
 
+def popups_enabled(config: dict) -> bool:
+    """ENABLE_POPUPS toggle from config.env / env. Default ON (back-compat).
+
+    Set ENABLE_POPUPS=false (or 0/no/off) to render WITHOUT the icon popups —
+    without re-running stage 07. The popup data stays untouched in caption.json;
+    we just render from a popup-stripped copy, so flipping it back to true and
+    re-rendering brings the icons straight back (no AI cost).
+    """
+    val = str(config.get("ENABLE_POPUPS", "true")).strip().lower()
+    return val not in ("false", "0", "no", "off")
+
+
+def build_render_caption(paths: PATHS, keep_popups: bool) -> Path:
+    """Return the caption path to render from.
+
+    Popups ON  → the real caption.json (unchanged).
+    Popups OFF → a sibling caption.no_popups.json with every scene's `popup`
+    field removed. The original is never modified. SFX ride on popups, so
+    dropping popup drops their sfx too (BG-music ducking reads the same field,
+    so it stays consistent automatically).
+    """
+    if keep_popups:
+        return paths.CAPTION
+    data = json.loads(paths.CAPTION.read_text(encoding="utf-8"))
+    stripped = 0
+    for scene in data.get("scenes", []):
+        if scene.pop("popup", None) is not None:
+            stripped += 1
+    out = paths.CAPTION.parent / "caption.no_popups.json"
+    out.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    log(f"   🚫 Popups OFF (ENABLE_POPUPS=false) — stripped {stripped} scene(s); "
+        f"rendering from {paths.rel(out)} (caption.json untouched).")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description="Stage 10 — Remotion render")
     parser.add_argument("--project", "-p", default=str(STAGE_DIR.parents[1]))
@@ -70,11 +106,14 @@ def main():
     if not paths.CAPTION.exists():
         raise SystemExit(f"❌ caption.json not found: {paths.CAPTION} — run stage 06/07 first.")
 
+    config = load_config(args.project)
     ensure_symlinks(paths)
     paths.OUTPUT.mkdir(parents=True, exist_ok=True)
 
+    render_caption = build_render_caption(paths, popups_enabled(config))
+
     cmd = ["bunx", "remotion", "render", "src/index.ts", "Documentary",
-           str(paths.FINAL), f"--props={paths.CAPTION}"]
+           str(paths.FINAL), f"--props={render_caption}"]
     # Reuse an already-installed Chrome if one is pointed to via REMOTION_CHROME
     # (or a common playwright cache) so Remotion never needs to download its own
     # headless shell — critical on machines that can't reach googleapis.com.
