@@ -1,6 +1,7 @@
 # Runtime data (regenerated at runtime)
 media-id.js
 output/
+input/
 *.log
 
 # Python

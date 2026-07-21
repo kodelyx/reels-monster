@@ -1,0 +1,34 @@
+{
+  "creator_name": "Your Name",
+  "instagram_handle": "yourhandle",
+  "niche": "AI & Technology",
+  "content_focus": [
+    "Whatever topic in your niche is currently trending or going viral right now",
+    "Fresh news the audience hasn't already seen everywhere",
+    "Stories with a strong 'wow' or 'is this real' hook people are talking about",
+    "Topics with clear mass appeal to your target audience",
+    "Only genuinely trending topics viewers would actually care about — no filler"
+  ],
+  "avoid_topics": [
+    "Dry corporate/funding news with no visual hook",
+    "Topics needing real human actors or celebrity faces on screen"
+  ],
+  "audience": {
+    "location": "India",
+    "language": "Hindi (Devanagari narration)",
+    "profile": "Young Reels / Shorts viewers, non-technical"
+  },
+  "format": {
+    "platform": "Instagram Reels / YouTube Shorts",
+    "duration_seconds": "60-80",
+    "orientation": "portrait",
+    "style": "Dark, cinematic, premium look. B-roll on top, talking avatar on bottom, karaoke captions."
+  },
+  "virality_rules": [
+    "Hook must shock or trigger curiosity in the first 4 seconds",
+    "At least one mind-blowing fact that forces comments or shares",
+    "Visuals must be easy for text-to-video AI to generate and relevant to the topic",
+    "Explainable in under 100 words",
+    "Prefer news from the last 7-14 days; fresher = better"
+  ]
+}
