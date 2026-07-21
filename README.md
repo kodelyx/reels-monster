@@ -26,7 +26,8 @@ python3 orchestrator.py
 python3 orchestrator.py --resume
 ```
 
-Final video: `output/final_trimmed.mp4`
+Output folder (bas yahi 3 cheez): `output/final.mp4` + `output/thumbnail.png` +
+`output/caption.txt` — koi temp/junk nahi.
 
 > **AI services:** ChatGPT (caption timing) aur Gemini (music) dono bundled native
 > binaries hain jo **on-demand khud boot** hote hain — koi Docker nahi. Setup +
@@ -48,7 +49,8 @@ cd vendor/flow && uv sync && cd ../..
 **2. Apni creator profile** (`profile/profile.json` — kaun ho, kis niche me)
 ```bash
 cp profile/profile.example.json profile/profile.json
-# phir profile.json edit karo: creator_name, niche, audience, virality_rules
+# phir profile.json edit karo: creator_name, instagram_handle (end-card @handle),
+# niche, audience, virality_rules
 ```
 
 **3. Apni avatar photo** (`profile/avatar.jpg` — talking-avatar ka face, stage 05)
@@ -94,11 +96,16 @@ mark nahi hota.
 | 07 | `popups` | `caption.json` me popups | AI |
 | 08 | `broll` | `broll/scene_N_a/b.mp4` | Flow API |
 | 09 | `music` | `music/bg_music.mp3` | Gemini (Lyria 3) |
-| 10 | `render` | `output/final.mp4` | Remotion (Bun) |
-| 11 | `final_trim` | `output/final_trimmed.mp4` | ffmpeg |
+| 10 | `render` | `output/final.mp4` + `thumbnail.png` + `caption.txt` | Remotion (Bun) |
+| 11 | `final_trim` | `output/final.mp4` (in-place trim, no 2nd file) | ffmpeg |
 
 Har stage ka apna `SKILL.md` (contract + run + common issues) us folder me hai.
 Stages 00-04 me `prompt.md` bhi (LLM prompt template).
+
+> **Stage 10 (render) 3 cheez banata hai:** (1) split-screen `final.mp4`, uske tail me
+> animated Instagram-Follow **end-card** (@handle profile se — hardcoded nahi), (2) topic-specific
+> **thumbnail.png** (AI hero visual, `thumbnail_design.md` se editable), (3) short viral
+> **caption.txt** (`caption.md` spec se). Ye teeno `.md` files edit karke style badlo — code nahi.
 
 ---
 
@@ -120,16 +127,16 @@ python3 orchestrator.py --no-ai          # sirf deterministic checks (AI QC skip
 
 ```
 reels-monster/
-├── orchestrator.py      # master runner (yahan se sab chalta hai)
+├── orchestrator.py      # master runner (yahan se sab chalta hai; run.log root me)
 ├── cleanup.py           # naya reel shuru karne se pehle state reset
-├── config.env           # endpoints + keys (paths NAHI — wo derived hote hain)
-├── core/                # shared: config, state, contracts, ai_client, mcp, preflight…
-├── stages/00..11/       # har stage: run.py + SKILL.md (+ prompt.md)
+├── .env                 # endpoints + keys (paths NAHI — wo derived hote hain) [gitignore]
+├── core/                # shared: config, state, contracts, ai_client, kie_image, title, preflight…
+├── stages/00..11/       # har stage: run.py + SKILL.md (+ prompt.md / *.md spec)
 ├── docs/                # PRD, Architecture, Rules, Phases, Design, Memory
 ├── project/             # generated state (topic→captions→music, state.json) [gitignore]
-├── output/              # rendered videos [gitignore]
+├── output/              # final.mp4 + thumbnail.png + caption.txt [gitignore]
 ├── profile/             # profile.example.json committed; profile.json + avatar.jpg tum banao [gitignore]
-├── remotion/            # React/TS renderer — `npm install` chahiye (node_modules gitignore'd)
+├── remotion/            # React/TS renderer (Documentary + EndCard) — `npm install` chahiye
 ├── sfx/                 # sound effects
 └── _archive/            # purane dead scripts (reference only)
 ```
@@ -145,12 +152,15 @@ reels-monster/
 
 ## ⚙️ Config
 
-`config.env` sirf endpoints + keys rakhta hai (koi filesystem path nahi — sab
+`.env` sirf endpoints + keys rakhta hai (koi filesystem path nahi — sab
 `core/config.py` PATHS project-root se derive karta hai, isliye repo kahin bhi move ho
-to bina change ke chalti hai):
+to bina change ke chalti hai). Clone ke baad `cp .env.example .env` karo, phir keys
+bharo. (`config.env` purana naam hai — abhi bhi back-compat me chalta hai.)
 
 ```
 AI_API_KEY=...            AI_BASE_URL=https://cc.freemodel.dev   AI_MODEL=...
+KIE_API_KEY=...           # stage 10 thumbnail hero image
+ELEVENLABS_API_KEY=...    # caption timing align (optional)
 FLOW_API_URL=http://localhost:8001
 CHATGPT_SERVER_URL=http://localhost:9225
 GEMINI_DOCKER_CONTAINER=free-gemini-api
