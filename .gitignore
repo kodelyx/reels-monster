@@ -50,9 +50,14 @@ vendor/gemini/music_raw_body.txt
 vendor/*/server.log
 *.log
 
+# ─── scratch / manual downloads (per-experiment, not source) ──────────────────
+downloads/
+scratch_sfx/
+
 # ─── python / editor / os cruft ───────────────────────────────────────────────
 __pycache__/
 *.pyc
 .DS_Store
 .claude/
 .cc-writes/
+run.log

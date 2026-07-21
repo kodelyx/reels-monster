@@ -77,10 +77,31 @@ def make_silent(paths, seconds: int = 60):
     _link_public(paths)
 
 
+# Hard negative guard ALWAYS appended to every music prompt before it reaches
+# Lyria — the model has ignored an in-prose "instrumental" hint and produced sung
+# vocals/lyrics (an English voice bleeding under the Hindi narration). Enforcing it
+# here (not just in the stage-04 AI prompt) guarantees the guard is present even if
+# the AI forgets to write it. Keep it blunt and explicit — Lyria responds to plain
+# negatives.
+INSTRUMENTAL_GUARD = (
+    " STRICTLY INSTRUMENTAL ONLY. Absolutely NO vocals, NO lyrics, NO singing, "
+    "NO humming, NO chanting, NO choir, NO spoken word, NO human voice of any kind. "
+    "Pure instrumental background score with zero voices."
+)
+
+
+def _with_instrumental_guard(prompt: str) -> str:
+    """Append the no-vocals guard unless the prompt already ends with it."""
+    if "STRICTLY INSTRUMENTAL ONLY" in prompt:
+        return prompt
+    return prompt.rstrip() + INSTRUMENTAL_GUARD
+
+
 def try_generate_music(config, paths) -> bool:
     """Attempt the real Gemini track. Return True on success, False on any failure."""
-    prompt = paths.MUSIC_PROMPT.read_text(encoding="utf-8").strip()
+    prompt = _with_instrumental_guard(paths.MUSIC_PROMPT.read_text(encoding="utf-8").strip())
     log("🎵 Generating music via bundled Gemini server (Lyria 3) ...")
+    log("   🔇 instrumental guard enforced (no vocals/lyrics/singing).")
     try:
         resp = gemini_server.generate_music(config, prompt)
         url = pick_track_url(config, resp)

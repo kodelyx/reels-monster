@@ -91,3 +91,4 @@ No bullets.
 Exactly **60–80 words**.
 One single paragraph.
 Optimized for Google MusicFX / Lyria.
+**The paragraph MUST END with this exact sentence, word for word:** "Strictly instrumental only — no vocals, no lyrics, no singing, no humming, no choir, no human voice." Lyria has produced sung vocals when this negative guard is missing, so it is mandatory in every prompt. (This sentence is in addition to the 60–80 words above.)

@@ -2,7 +2,11 @@
 
 WebSocket + HTTP server that communicates with the Chrome extension.
 Handles auth token capture, API proxying, and request/response routing.
+Supports multiple concurrent extension clients (multi-PC/multi-browser setup).
 """
+
+import time as _time
+import contextvars
 
 import asyncio
 import json
@@ -14,6 +18,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import websockets
 
+target_client_id_var = contextvars.ContextVar("target_client_id", default=None)
+
 from .config import (
     WS_PORT, HTTP_PORT, API_BASE, API_KEY,
     CLIENT_CTX, USER_AGENTS, API_REQUEST_TIMEOUT,
@@ -24,38 +30,59 @@ log = logging.getLogger("omniflash.bridge")
 
 
 class ExtensionBridge:
-    """WebSocket server that Chrome extension connects to."""
+    """WebSocket server that Chrome extensions connect to."""
+
+    # Seconds to wait after server boot before allowing generation requests.
+    # Prevents UNUSUAL_ACTIVITY errors caused by 40+ browsers reconnecting
+    # simultaneously and the first request landing before Google stabilises.
+    STARTUP_COOLDOWN = 10
 
     def __init__(self):
-        self._ws = None
+        self._clients: dict[str, websockets.WebSocketServerProtocol] = {}  # client_id -> WebSocket
+        self._tokens: dict[str, str] = {}         # client_id -> flowKey
+        self._states: dict[str, str] = {}         # client_id -> state ('idle' | 'running')
+        self._tiers: dict[str, str] = {}          # client_id -> sku ('G1_FREEMIUM' free | 'G1_TIER1' pro)
+        self._credits: dict[str, int] = {}        # client_id -> last-known credit balance
         self._pending: dict[str, asyncio.Future] = {}
-        self._flow_key = None
         self._connected = asyncio.Event()
         self._loop = None
-        # Late/orphan-response reconciliation: remember a small window of recent
-        # requests so a response that arrives after its caller gave up is not
-        # silently dropped but handed to the orphan handler instead.
+        self._boot_time = _time.monotonic()  # for startup cooldown
+
+        # Late/orphan-response reconciliation
         self._req_meta: dict[str, dict] = {}
         self._orphan_handler = None
-        # The extension retries delivery until acked, so the same response may
-        # arrive more than once. Track ids already resolved/recovered to make
-        # delivery idempotent (no duplicate saves).
         self._seen_ids: dict[str, bool] = {}
-        # Rate limiting: cap concurrent generations and space them out so we
-        # don't trip Google's UNUSUAL_ACTIVITY throttle. Semaphore is created
-        # lazily on the running loop (see _get_rate_limit).
-        self._rate_sem: asyncio.Semaphore | None = None
-        self._rate_lock: asyncio.Lock | None = None
-        self._last_request_at: float = 0.0
 
-    def _get_rate_limit(self):
-        """Lazily build the concurrency semaphore + spacing lock on the active
-        loop (they must be bound to the loop that awaits them)."""
-        if self._rate_sem is None:
-            self._rate_sem = asyncio.Semaphore(max(1, MAX_CONCURRENT_REQUESTS))
-        if self._rate_lock is None:
-            self._rate_lock = asyncio.Lock()
-        return self._rate_sem, self._rate_lock
+        # Client-specific rate limiting
+        self._client_sems: dict[str, asyncio.Semaphore] = {}
+        self._client_locks: dict[str, asyncio.Lock] = {}
+        self._client_last_request_at: dict[str, float] = {}
+
+    @property
+    def _ws(self):
+        """Compatibility property for legacy code that accesses bridge._ws.
+        Returns the first connected WebSocket client."""
+        for ws in self._clients.values():
+            if ws:
+                return ws
+        return None
+
+    @property
+    def _flow_key(self):
+        """Compatibility property for legacy code that accesses bridge._flow_key.
+        Returns the first captured token in the pool."""
+        for tok in self._tokens.values():
+            if tok:
+                return tok
+        return None
+
+    def _get_client_rate_limit(self, client_id):
+        """Build or retrieve client-specific concurrency semaphore and spacing lock."""
+        if client_id not in self._client_sems:
+            self._client_sems[client_id] = asyncio.Semaphore(max(1, MAX_CONCURRENT_REQUESTS))
+        if client_id not in self._client_locks:
+            self._client_locks[client_id] = asyncio.Lock()
+        return self._client_sems[client_id], self._client_locks[client_id]
 
     def _mark_seen(self, req_id, max_keep=256):
         self._seen_ids[req_id] = True
@@ -64,9 +91,6 @@ class ExtensionBridge:
             self._seen_ids.pop(oldest, None)
 
     def set_orphan_handler(self, handler):
-        """Register async fn(data, meta) called when a response arrives for a
-        request whose caller already timed out. Lets late-but-successful
-        generations be recovered instead of discarded."""
         self._orphan_handler = handler
 
     def _remember_request(self, req_id, meta, max_keep=64):
@@ -75,23 +99,119 @@ class ExtensionBridge:
             oldest = next(iter(self._req_meta))
             self._req_meta.pop(oldest, None)
 
-    async def send_message(self, msg):
-        if not self._ws:
-            return
+    def _is_free(self, cid) -> bool:
+        """Free-tier client? Freemium accounts are spent first so paid/pro
+        credits are preserved. Unknown tier is treated as free (spend it early)."""
+        return self._tiers.get(cid, "G1_FREEMIUM") != "G1_TIER1"
+
+    def _select_client(self) -> str | None:
+        """Selects the best connected client to route a request to.
+        Prioritizes:
+          1. Idle clients with captured tokens (free tier before pro).
+          2. Any connected client with a captured token (free before pro).
+          3. Any connected client.
+        Free (G1_FREEMIUM) clients are always drained before paid (G1_TIER1)
+        ones so pro credits are only touched once free credits run out.
+        """
+        connected_ids = list(self._clients.keys())
+        if not connected_ids:
+            return None
+
+        def _pick(pool):
+            """Prefer free-tier clients in the pool; fall back to pro."""
+            free = [c for c in pool if self._is_free(c)]
+            if free:
+                return random.choice(free)
+            return random.choice(pool) if pool else None
+
+        # Filter clients with active tokens
+        with_tokens = [cid for cid in connected_ids if self._tokens.get(cid)]
+
+        # Filter idle clients with tokens
+        idle_with_tokens = [cid for cid in with_tokens if self._states.get(cid) == "idle"]
+        if idle_with_tokens:
+            return _pick(idle_with_tokens)
+
+        if with_tokens:
+            return _pick(with_tokens)
+
+        return random.choice(connected_ids)
+
+    def _select_client_for_cost(self, cost: int) -> str | None:
+        """Pick a client that can actually afford a `cost`-credit job.
+
+        Same free-before-pro priority as _select_client, but additionally skips
+        any client whose last-known balance is below `cost`. This prevents
+        routing a 15-credit video to a browser that only has 5 credits left
+        while a 50-credit browser sits idle. Clients with no cached balance yet
+        are treated as affordable (optimistic — the real credit gate re-checks
+        on the pinned client before generating).
+        """
+        if cost <= 0:
+            return self._select_client()
+
+        connected_ids = list(self._clients.keys())
+        if not connected_ids:
+            return None
+
+        def _affordable(cid):
+            bal = self._credits.get(cid)
+            return bal is None or bal >= cost
+
+        def _pick(pool):
+            pool = [c for c in pool if _affordable(c)]
+            if not pool:
+                return None
+            free = [c for c in pool if self._is_free(c)]
+            if free:
+                # Prefer the free client with the MOST credits so it drains cleanly.
+                known = [c for c in free if self._credits.get(c) is not None]
+                if known:
+                    return max(known, key=lambda c: self._credits[c])
+                return random.choice(free)
+            known = [c for c in pool if self._credits.get(c) is not None]
+            if known:
+                return max(known, key=lambda c: self._credits[c])
+            return random.choice(pool)
+
+        with_tokens = [cid for cid in connected_ids if self._tokens.get(cid)]
+        idle_with_tokens = [cid for cid in with_tokens if self._states.get(cid) == "idle"]
+
+        pick = _pick(idle_with_tokens)
+        if pick:
+            return pick
+        pick = _pick(with_tokens)
+        if pick:
+            return pick
+        # Nobody provably affords it → fall back to normal selection (gate will 402).
+        return self._select_client()
+
+    async def send_message_to(self, client_id, msg):
+        """Send message to a specific client in the pool."""
+        ws = self._clients.get(client_id)
+        if not ws:
+            log.warning("Client %s not connected", client_id)
+            return False
         try:
-            if hasattr(self._ws, "send_text"):
-                await self._ws.send_text(json.dumps(msg))
+            if hasattr(ws, "send_text"):
+                await ws.send_text(json.dumps(msg))
             else:
-                await self._ws.send(json.dumps(msg))
+                await ws.send(json.dumps(msg))
+            return True
         except Exception as e:
-            log.warning("Failed to send message: %s", e)
+            log.warning("Failed to send message to client %s: %s", client_id, e)
+            return False
+
+    async def send_message(self, msg):
+        """Broadcast message to all connected clients (legacy fallback)."""
+        for cid in list(self._clients.keys()):
+            await self.send_message_to(cid, msg)
 
     async def handle_fastapi_ws(self, ws):
-        self._ws = ws
-        log.info("Extension connected via FastAPI WebSocket!")
-        self._connected.set()
+        """Handle FastAPI WebSocket connection session."""
+        # Setup temporary client ID until extension self-registers
+        client_id = f"client_{uuid.uuid4().hex[:6]}"
 
-        # Send callback config to extension
         import os
         space_id = os.environ.get("SPACE_ID")
         if space_id:
@@ -99,168 +219,203 @@ class ExtensionBridge:
             subdomain = f"{author.lower()}-{name.lower()}".replace("_", "-")
             callback_url = f"https://{subdomain}.hf.space/api/ext/callback"
         else:
-            callback_url = f"http://127.0.0.1:{os.environ.get('OPENAI_API_PORT', '8001')}/api/ext/callback"
+            callback_url = f"http://{ws.url.netloc}/api/ext/callback"
 
-        await self.send_message({
-            "type": "callback_config",
-            "secret": "flow_secret",
-            "callback_url": callback_url
-        })
-
-        # Send current state + resend token if we have one
-        await self.send_message({
-            "type": "extension_ready",
-            "flowKeyPresent": self._flow_key is not None,
-        })
-        if self._flow_key:
-            await self.send_message({
-                "type": "token_captured",
-                "flowKey": self._flow_key
-            })
+        # Send callback config
+        try:
+            await ws.send_text(json.dumps({
+                "type": "callback_config",
+                "secret": "flow_secret",
+                "callback_url": callback_url
+            }))
+        except Exception as e:
+            log.warning("FastAPI WS initial setup failed: %s", e)
+            return
 
         try:
             while True:
                 raw = await ws.receive_text()
                 data = json.loads(raw)
-                await self._handle_message(data)
+                client_id = await self._handle_message_with_client(data, ws, client_id)
         except Exception as e:
-            log.warning("FastAPI WebSocket disconnected: %s", e)
+            log.warning("FastAPI WebSocket disconnected for client %s: %s", client_id, e)
         finally:
-            self._ws = None
-            self._connected.clear()
+            self._clients.pop(client_id, None)
+            self._tokens.pop(client_id, None)
+            self._states.pop(client_id, None)
+            self._tiers.pop(client_id, None)
+            self._credits.pop(client_id, None)
+            self._client_sems.pop(client_id, None)
+            self._client_locks.pop(client_id, None)
+            self._client_last_request_at.pop(client_id, None)
+            if not self._clients:
+                self._connected.clear()
 
     async def start(self):
         """Start WS server and HTTP callback server."""
         self._loop = asyncio.get_event_loop()
         self._start_http_server()
 
+        # Bind to 0.0.0.0 to allow other PCs on local network to connect
         self._ws_server = await websockets.serve(
-            self._on_connect, "127.0.0.1", WS_PORT
+            self._on_connect, "0.0.0.0", WS_PORT
         )
-        log.info("WebSocket server on ws://127.0.0.1:%d", WS_PORT)
-        log.info("HTTP callback on http://127.0.0.1:%d", HTTP_PORT)
-        log.info("Waiting for Chrome extension to connect...")
+        log.info("WebSocket server on ws://0.0.0.0:%d", WS_PORT)
+        log.info("HTTP callback on http://0.0.0.0:%d", HTTP_PORT)
+        log.info("Waiting for Chrome extensions to connect...")
 
-    async def wait_for_extension(self, timeout=90, max_retries=3):
-        """Wait until extension connects and sends flow key.
+    async def wait_for_extension(self, timeout=90, max_retries=3, auto_fix=True):
+        """Wait until at least one extension connects and captures a token."""
+        start_time = self._loop.time()
+        while not self._clients:
+            if self._loop.time() - start_time > timeout:
+                log.error("No extensions connected within %ds", timeout)
+                return False
+            await asyncio.sleep(0.5)
 
-        Phase 1: Wait for WebSocket connection from extension.
-        Phase 2: If no token, auto-open/refresh Flow tab and wait for token.
-        """
-        # Phase 1: Wait for WS connection
-        try:
-            await asyncio.wait_for(self._wait_for_ws(), 30)
-        except asyncio.TimeoutError:
-            log.error("Extension didn't connect in 30s")
-            log.error("   Make sure Flow Agent extension is installed and enabled in Chrome")
-            return False
+        # Wait briefly for cached token to arrive
+        start_time = self._loop.time()
+        while not any(self._tokens.values()):
+            if self._loop.time() - start_time > 2.0:
+                break
+            await asyncio.sleep(0.2)
 
-        # If token already present, we're good
-        if self._flow_key:
+        if any(self._tokens.values()):
             return True
 
-        # Phase 2: Extension connected but no token — auto-fix
-        log.info("Extension connected but no auth token — auto-fixing...")
+        if not auto_fix:
+            return any(self._tokens.values())
 
-        for attempt in range(1, max_retries + 1):
-            log.info("Attempt %d/%d: Opening/refreshing Flow tab...", attempt, max_retries)
-            await self._request_flow_tab()
+        log.info("Extensions connected but no auth tokens — requesting flow tabs...")
+        for cid in list(self._clients.keys()):
+            if not self._tokens.get(cid):
+                await self._request_flow_tab_for(cid)
 
-            # Wait for token to arrive (token_captured message)
-            token_arrived = await self._wait_for_token(20)
-            if token_arrived:
-                log.info("Token captured after auto-fix!")
-                return True
+        # Wait for a token to arrive after requesting flow tabs
+        start_time = self._loop.time()
+        while not any(self._tokens.values()):
+            if self._loop.time() - start_time > 20.0:
+                break
+            await asyncio.sleep(0.5)
 
-            log.warning("Token not captured yet...")
-
-        log.error("Could not get auth token after %d retries", max_retries)
-        log.error("   Make sure you're logged into Google at labs.google/fx/tools/flow")
-        return False
+        return any(self._tokens.values())
 
     async def _wait_for_ws(self):
-        """Wait until a WebSocket connection is established."""
-        while not self._ws:
+        while not self._clients:
             await asyncio.sleep(0.5)
 
     async def _wait_for_token(self, timeout):
-        """Wait until a valid token is captured."""
         self._connected.clear()
         try:
             await asyncio.wait_for(self._connected.wait(), timeout)
             return True
         except asyncio.TimeoutError:
-            return self._flow_key is not None
+            return any(self._tokens.values())
 
-    async def _request_flow_tab(self):
-        """Ask extension to open or refresh a Flow tab."""
-        if not self._ws:
+    async def _request_flow_tab_for(self, client_id):
+        """Ask specific extension to open or refresh a Flow tab."""
+        if client_id not in self._clients:
+            return
+        if self._tokens.get(client_id):
             return
         try:
-            log.info("Requesting extension to open/refresh Flow tab...")
-            await self.send_message({"method": "open_flow_tab"})
-            # Wait for page to fully load before requesting token refresh
+            log.info("Requesting client %s to open/refresh Flow tab...", client_id)
+            await self.send_message_to(client_id, {"method": "open_flow_tab"})
             await asyncio.sleep(8)
-            log.info("Requesting token refresh from Flow tab...")
-            await self.send_message({"method": "refresh_flow_tab"})
+            await self.send_message_to(client_id, {"method": "refresh_flow_tab"})
         except Exception as e:
-            log.debug("Failed to request flow tab: %s", e)
+            log.debug("Failed to request flow tab for client %s: %s", client_id, e)
+
+    async def _force_refresh_client(self, client_id):
+        """Force a client to reload its Flow tab and re-capture a fresh token,
+        bypassing the extension's 50-min freshness cache. Used to self-heal a
+        stale token (Google invalidates via inactivity before the cache expires).
+        """
+        if client_id not in self._clients:
+            return
+        try:
+            log.info("Force-refreshing Flow tab for client %s (stale token self-heal)...", client_id)
+            self._tokens.pop(client_id, None)
+            await self.send_message_to(client_id, {"method": "force_refresh", "force": True})
+            await asyncio.sleep(6)
+        except Exception as e:
+            log.debug("Force-refresh failed for client %s: %s", client_id, e)
+
+    async def _request_flow_tab(self):
+        """Fallback that triggers open_flow_tab on all connected clients."""
+        for cid in list(self._clients.keys()):
+            await self._request_flow_tab_for(cid)
 
     async def health_check(self):
-        """Quick check if extension is ready with valid token."""
-        if not self._ws or not self._flow_key:
-            return False
-        try:
-            req_id = str(uuid.uuid4())
-            future = self._loop.create_future()
-            self._pending[req_id] = future
-            await self.send_message({
-                "id": req_id,
-                "method": "get_status",
-            })
-            result = await asyncio.wait_for(future, timeout=5)
-            self._pending.pop(req_id, None)
-            return result.get("result", {}).get("flowKeyPresent", False)
-        except Exception:
-            self._pending.pop(req_id, None)
-            return False
+        """Quick check if at least one extension is ready with valid token."""
+        active_clients = [cid for cid in self._clients if self._tokens.get(cid)]
+        return len(active_clients) > 0
 
     async def _on_connect(self, ws):
-        self._ws = ws
-        log.info("Extension connected!")
+        """Handle raw WebSocket connections."""
+        client_id = f"client_{uuid.uuid4().hex[:6]}"
+        log.info("Extension connected via raw WebSocket!")
         try:
             async for raw in ws:
                 data = json.loads(raw)
-                await self._handle_message(data)
-        except websockets.exceptions.ConnectionClosed:
-            log.warning("Extension disconnected")
-            self._ws = None
-            self._connected.clear()
+                client_id = await self._handle_message_with_client(data, ws, client_id)
+        except Exception as e:
+            log.warning("Raw WebSocket disconnected for client %s: %s", client_id, e)
+        finally:
+            self._clients.pop(client_id, None)
+            self._tokens.pop(client_id, None)
+            self._states.pop(client_id, None)
+            self._tiers.pop(client_id, None)
+            self._credits.pop(client_id, None)
+            self._client_sems.pop(client_id, None)
+            self._client_locks.pop(client_id, None)
+            self._client_last_request_at.pop(client_id, None)
+            if not self._clients:
+                self._connected.clear()
 
-    async def _handle_message(self, data):
+    async def _handle_message_with_client(self, data, ws, current_client_id):
         msg_type = data.get("type")
 
-        if msg_type == "token_captured":
-            first_time = self._flow_key is None
-            self._flow_key = data.get("flowKey")
-            if first_time:
-                log.info("Auth token captured")
-            else:
-                log.debug("Auth token refreshed")
-            self._connected.set()
+        if msg_type == "extension_ready":
+            client_id = data.get("clientId") or current_client_id
+            if client_id != current_client_id:
+                self._clients.pop(current_client_id, None)
+                self._tokens.pop(current_client_id, None)
+                self._states.pop(current_client_id, None)
+                self._tiers.pop(current_client_id, None)
+                self._credits.pop(current_client_id, None)
+            self._clients[client_id] = ws
+            self._states[client_id] = "idle"
+            log.info("Extension client ready: %s (total: %d)", client_id, len(self._clients))
 
-        elif msg_type == "extension_ready":
-            log.info("Extension ready (flowKey=%s)", "yes" if data.get("flowKeyPresent") else "no")
-            if data.get("flowKeyPresent") and self._flow_key:
-                self._connected.set()
+            # If client connects without a token, trigger an automatic flow tab refresh in the background
+            if not data.get("flowKeyPresent"):
+                log.info("Client %s has no cached token. Triggering auto token refresh...", client_id)
+                asyncio.create_task(self._request_flow_tab_for(client_id))
+            return client_id
+
+        elif msg_type == "token_captured":
+            flow_key = data.get("flowKey")
+            self._tokens[current_client_id] = flow_key
+            log.info("Token captured for client: %s", current_client_id)
+            self._connected.set()
+            return current_client_id
 
         elif msg_type in ("pong", "ping"):
-            if msg_type == "ping" and self._ws:
-                await self.send_message({"type": "pong"})
+            if msg_type == "ping":
+                try:
+                    await ws.send(json.dumps({"type": "pong"}))
+                except Exception:
+                    pass
+            return current_client_id
 
         else:
             req_id = data.get("id")
             self._route_response(req_id, data)
+            return current_client_id
+
+    def _resolve_pending(self, req_id, data):
+        self._route_response(req_id, data)
 
     def _route_response(self, req_id, data):
         """Route an extension response. Fast path resolves the waiting future;
@@ -304,52 +459,134 @@ class ExtensionBridge:
                 )
                 return True
         if data.get("type") == "token_captured":
-            self._flow_key = data.get("flowKey")
-            self._loop.call_soon_threadsafe(self._connected.set)
+            client_id = data.get("clientId") or next(iter(self._clients.keys()), None)
+            if client_id:
+                self._tokens[client_id] = data.get("flowKey")
+                self._loop.call_soon_threadsafe(self._connected.set)
             return True
         return False
 
-    def _resolve_pending(self, req_id, data):
-        self._route_response(req_id, data)
+    def _get_global_lock(self):
+        """Build or retrieve global concurrency lock for IP-wide spacing."""
+        if not hasattr(self, "_global_lock"):
+            self._global_lock = asyncio.Lock()
+            self._last_global_req_at = 0.0
+        return self._global_lock
 
-    async def api_request(self, url_path, body, captcha_action="VIDEO_GENERATION", method="POST", timeout=None, meta=None):
-        """Send API request through Chrome extension.
+    async def _space_out_global_requests(self):
+        """Ensure a minimum gap between requests across the entire client pool (IP level)."""
+        import os
+        global_interval = float(os.environ.get("GLOBAL_REQUEST_MIN_INTERVAL", "3.5"))
+        lock = self._get_global_lock()
+        async with lock:
+            now = self._loop.time()
+            wait = self._last_global_req_at + global_interval - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_global_req_at = self._loop.time()
 
-        Generation requests (those with a non-empty captcha_action) are rate
-        limited: at most MAX_CONCURRENT_REQUESTS in flight and spaced at least
-        REQUEST_MIN_INTERVAL seconds apart. Non-generation calls (polling,
-        credits — captcha_action="") bypass the limiter so they stay responsive.
-        """
-        if not self._ws:
-            return {"error": "Extension not connected"}
+    def _get_global_sem(self):
+        """Build or retrieve global request semaphore to limit parallel execution across all nodes."""
+        if not hasattr(self, "_global_sem"):
+            self._global_sem = asyncio.Semaphore(max(1, MAX_CONCURRENT_REQUESTS))
+        return self._global_sem
 
-        # Only throttle credit/captcha-consuming generation calls.
+    async def _wait_startup_cooldown(self):
+        """Block until the startup cooldown has elapsed.
+        Prevents burst requests right after server boot when all browsers
+        reconnect simultaneously."""
+        elapsed = _time.monotonic() - self._boot_time
+        remaining = self.STARTUP_COOLDOWN - elapsed
+        if remaining > 0:
+            log.info("Startup cooldown: waiting %.1fs before first request...", remaining)
+            await asyncio.sleep(remaining)
+
+    async def api_request(self, url_path, body, captcha_action="VIDEO_GENERATION", method="POST", timeout=None, meta=None, client_id=None):
+        """Send API request through a selected Chrome extension."""
+        if not client_id:
+            client_id = target_client_id_var.get() or self._select_client()
+        if not client_id:
+            return {"error": "No extensions connected"}
+
+        log.info("Routing request to client: %s (total connected: %d)", client_id, len(self._clients))
+
+        result = await self._run_api_request(client_id, url_path, body, captcha_action, method, timeout, meta)
+
+        # Self-heal on a stale token: a 401 means Google invalidated this client's
+        # token via inactivity. Force-refresh the tab and retry once on the same
+        # client; if it still 401s, fail over to a different client.
+        if self._is_unauthenticated(result):
+            log.warning("Client %s returned 401 UNAUTHENTICATED — force-refreshing and retrying", client_id)
+            await self._force_refresh_client(client_id)
+            result = await self._run_api_request(client_id, url_path, body, captcha_action, method, timeout, meta)
+
+            if self._is_unauthenticated(result):
+                fallback = self._select_client_excluding(client_id)
+                if fallback:
+                    log.warning("Client %s still 401 after refresh — failing over to %s", client_id, fallback)
+                    result = await self._run_api_request(fallback, url_path, body, captcha_action, method, timeout, meta)
+        return result
+
+    @staticmethod
+    def _is_unauthenticated(result) -> bool:
+        """True if an extension response indicates a 401/expired-token error."""
+        if not isinstance(result, dict):
+            return False
+        if result.get("status") == 401:
+            return True
+        data = result.get("data")
+        if isinstance(data, dict):
+            err = data.get("error")
+            if isinstance(err, dict) and (err.get("code") == 401 or err.get("status") == "UNAUTHENTICATED"):
+                return True
+        return False
+
+    def _select_client_excluding(self, exclude_id) -> str | None:
+        """Pick another connected client with a token, skipping exclude_id."""
+        candidates = [c for c in self._clients if c != exclude_id and self._tokens.get(c)]
+        if not candidates:
+            return None
+        free = [c for c in candidates if self._is_free(c)]
+        return random.choice(free) if free else random.choice(candidates)
+
+    async def _run_api_request(self, client_id, url_path, body, captcha_action, method, timeout, meta):
+        """Execute a single request attempt against one client, applying the
+        global + per-client rate limiting when a captcha action is involved."""
         if captcha_action:
-            sem, lock = self._get_rate_limit()
-            async with sem:
-                await self._space_out_requests(lock)
-                return await self._do_api_request(url_path, body, captcha_action, method, timeout, meta)
-        return await self._do_api_request(url_path, body, captcha_action, method, timeout, meta)
+            # Wait for startup cooldown if server just booted
+            await self._wait_startup_cooldown()
+            # Space out requests globally to protect against IP rate-limiting
+            await self._space_out_global_requests()
 
-    async def _space_out_requests(self, lock):
-        """Enforce a minimum gap between the starts of consecutive generation
-        requests so bursts don't trip Google's UNUSUAL_ACTIVITY throttle."""
+            global_sem = self._get_global_sem()
+            # Enforce global active slots (e.g. max 5 generation requests in flight)
+            async with global_sem:
+                sem, lock = self._get_client_rate_limit(client_id)
+                async with sem:
+                    await self._space_out_client_requests(client_id, lock)
+                    return await self._do_api_request(client_id, url_path, body, captcha_action, method, timeout, meta)
+        return await self._do_api_request(client_id, url_path, body, captcha_action, method, timeout, meta)
+
+    async def _space_out_client_requests(self, client_id, lock):
+        """Enforce a minimum gap between consecutive requests per client."""
         if REQUEST_MIN_INTERVAL <= 0:
             return
         async with lock:
             now = self._loop.time()
-            wait = self._last_request_at + REQUEST_MIN_INTERVAL - now
+            last_req = self._client_last_request_at.get(client_id, 0.0)
+            wait = last_req + REQUEST_MIN_INTERVAL - now
             if wait > 0:
                 await asyncio.sleep(wait)
-            self._last_request_at = self._loop.time()
+            self._client_last_request_at[client_id] = self._loop.time()
 
-    async def _do_api_request(self, url_path, body, captcha_action, method, timeout, meta):
+    async def _do_api_request(self, client_id, url_path, body, captcha_action, method, timeout, meta):
         req_id = str(uuid.uuid4())
         future = self._loop.create_future()
         self._pending[req_id] = future
         self._remember_request(req_id, {
             "captcha_action": captcha_action,
             "url_path": url_path,
+            "client_id": client_id,
             **(meta or {}),
         })
 
@@ -379,18 +616,34 @@ class ExtensionBridge:
                 "captchaAction": captcha_action,
             },
         }
-        await self.send_message(msg)
+
+        self._states[client_id] = "running"
+        await self.send_message_to(client_id, msg)
 
         try:
             result = await asyncio.wait_for(future, timeout=timeout or API_REQUEST_TIMEOUT)
+            if isinstance(result, dict):
+                result["_client_id"] = client_id
+                # Cache the account tier from any response that carries it (e.g.
+                # a credits check) so _select_client can drain free before pro.
+                rdata = result.get("data")
+                if isinstance(rdata, dict) and rdata.get("sku"):
+                    self._tiers[client_id] = rdata["sku"]
+                if isinstance(rdata, dict) and "credits" in rdata:
+                    try:
+                        self._credits[client_id] = int(rdata["credits"])
+                    except (TypeError, ValueError):
+                        pass
             return result
         except asyncio.TimeoutError:
-            return {"error": "TIMEOUT"}
+            return {"error": "TIMEOUT", "_client_id": client_id}
         finally:
             self._pending.pop(req_id, None)
+            if client_id in self._states:
+                self._states[client_id] = "idle"
 
     def _start_http_server(self):
-        """Start HTTP server for extension callbacks (runs in thread)."""
+        """Start HTTP server for extension callbacks on 0.0.0.0."""
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -413,9 +666,12 @@ class ExtensionBridge:
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
+                    # Calculate active clients status
+                    active_clients = list(bridge._clients.keys())
                     self.wfile.write(json.dumps({
-                        "status": "ok",
-                        "extension_connected": bridge._ws is not None,
+                        "status": "healthy" if len(active_clients) > 0 else "offline",
+                        "extension_connected": len(active_clients) > 0,
+                        "clients": [{"id": cid, "state": bridge._states.get(cid), "has_token": bridge._tokens.get(cid) is not None} for cid in active_clients]
                     }).encode())
                 else:
                     self.send_response(404)
@@ -431,7 +687,8 @@ class ExtensionBridge:
             def log_message(self, *args):
                 pass
 
-        server = HTTPServer(("127.0.0.1", HTTP_PORT), Handler)
+        # Bind to 0.0.0.0 to enable callback routing from different devices
+        server = HTTPServer(("0.0.0.0", HTTP_PORT), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
 

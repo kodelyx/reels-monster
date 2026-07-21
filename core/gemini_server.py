@@ -109,11 +109,33 @@ def _post(config, route: str, payload: dict, timeout: float = 180.0) -> dict:
     return obj
 
 
+def reset_session(config, timeout: float = 15.0) -> bool:
+    """POST /reset — start a FRESH Gemini conversation (new c_… id).
+
+    Kept for callers that want an explicit reset. For music we instead pass
+    new_chat:true on the /music request itself (one round-trip, same effect).
+    Best-effort: returns True on success, False otherwise.
+    """
+    ensure_server(config)
+    try:
+        obj = _post(config, "/reset", {}, timeout=timeout)
+        return isinstance(obj, dict) and obj.get("status") == "success"
+    except Exception:
+        return False
+
+
 def generate_music(config, prompt: str, timeout: float = 180.0) -> dict:
     """POST /music. Ensures the server is up first. Returns the parsed JSON dict,
-    which includes music[].local_path (a http://<host>/output/... URL we can fetch)."""
+    which includes music[].local_path (a http://<host>/output/... URL we can fetch).
+
+    Sends new_chat:true so Gemini starts a FRESH conversation for every request.
+    Gemini's music_gen tool only fires on the first relevant turn of a chat — reuse
+    an old conversation and it replies with chat text ("## Music Prompt Validated …")
+    instead of generating audio. Verified: new_chat:true → music_gen fires and a
+    track is returned in the same round-trip (no separate /reset needed).
+    """
     ensure_server(config)
-    return _post(config, "/music", {"prompt": prompt}, timeout=timeout)
+    return _post(config, "/music", {"prompt": prompt, "new_chat": True}, timeout=timeout)
 
 
 def chat(config, prompt: str, timeout: float = 90.0) -> str:

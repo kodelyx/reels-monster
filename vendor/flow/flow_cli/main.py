@@ -29,6 +29,8 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+import omniflash.config
+
 
 def _api_base() -> str:
     host = os.environ.get("OPENAI_API_HOST", "127.0.0.1")

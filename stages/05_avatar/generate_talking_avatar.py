@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import http.client
 from pathlib import Path
 
 # === CONFIG (endpoints via core.config; paths are project-relative) ===
@@ -27,7 +28,7 @@ except Exception:
     FLOW_API_URL = "http://localhost:8001"
     AVATAR_IMAGE = ""
     DEFAULT_OUTPUT_DIR = "."
-PROMPT_TEMPLATE = """Use the uploaded avatar image as the exact identity reference. Create a highly realistic 10-second talking avatar video.
+PROMPT_TEMPLATE = """Use the uploaded avatar image as the exact identity reference. Create a highly realistic {{DURATION}}-second talking avatar video.
 
 Keep the person exactly the same as the reference image: same face, same skin tone, same hairstyle, same hairline, same eyes, same eyebrows, same nose, same lips, same mustache, same beard line, same jaw shape, same shirt, same sitting posture, same body size, and same professional indoor background.
 
@@ -46,7 +47,15 @@ Keep the same framing, angle, and composition as the reference image. Stable cam
 
 --- DIALOGUE ---
 
+The person speaks EXACTLY this line, word for word, ONE TIME ONLY:
+
 {{DIALOGUE}}
+
+CRITICAL SPEECH RULES:
+- Speak the dialogue above exactly ONCE, start to finish. Do NOT repeat, loop, echo, or re-say any word, phrase, or sentence — not even to fill time.
+- If the line finishes before the clip ends, the person simply STOPS talking and stays calm and still (closed mouth, natural micro-movements). Silence is correct — never invent, stretch, or duplicate words to cover remaining time.
+- Do NOT add any extra words, filler, or improvised speech that is not in the dialogue above.
+- The mouth must be closed and still whenever there is no dialogue left to speak.
 
 --- MOTION ---
 Animate only natural human speaking movement:
@@ -95,7 +104,7 @@ Do NOT distort fingers or hands.
 Keep the identity, background, posture, and overall look exactly the same as the uploaded reference image.
 
 --- NEGATIVE ---
-cartoon, anime, CGI, fake skin, plastic face, waxy face, glossy skin, over-smooth skin, beautified face, changed identity, changed beard, changed mustache, changed hairstyle, changed body shape, changed background, different room, different environment, new furniture, new props, redesigned background, distorted face, distorted hands, extra fingers, missing fingers, twisted fingers, robotic hands, unnatural hand motion, distorted arms, distorted mouth, bad lip sync, robotic motion, artificial lighting, changed lighting, fake smile, blurry, over-sharp, random objects, fake props, text, captions, subtitles, watermark, logo.
+cartoon, anime, CGI, fake skin, plastic face, waxy face, glossy skin, over-smooth skin, beautified face, changed identity, changed beard, changed mustache, changed hairstyle, changed body shape, changed background, different room, different environment, new furniture, new props, redesigned background, distorted face, distorted hands, extra fingers, missing fingers, twisted fingers, robotic hands, unnatural hand motion, distorted arms, distorted mouth, bad lip sync, robotic motion, artificial lighting, changed lighting, fake smile, blurry, over-sharp, random objects, fake props, text, captions, subtitles, watermark, logo, repeated words, repeated sentence, duplicated speech, echoed dialogue, looping speech, stuttering, saying the same word twice, extra invented words, filler speech, mouth moving with no dialogue, talking during silence.
 
 Make the final output indistinguishable from a real human recording."""
 
@@ -105,12 +114,18 @@ def log(msg):
 
 
 def check_credits():
-    """Check remaining Flow credits."""
+    """Check remaining Flow credits. Handles both the flat response
+    ({"credits": N}) and the newer wrapped one ({"data": {"credits": N}})."""
     try:
         req = urllib.request.Request(f"{FLOW_API_URL}/v1/credits")
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return data.get("credits", 0)
+        if "credits" not in data and isinstance(data.get("data"), dict):
+            data = data["data"]
+        # Newer server aggregates across clients as "total_credits".
+        if "total_credits" in data:
+            return data["total_credits"]
+        return data.get("credits", 0)
     except Exception as e:
         log(f"Credits check failed: {e}")
         return -1
@@ -123,13 +138,85 @@ def load_image_base64(path):
     return f"data:image/png;base64,{encoded}"
 
 
-def build_prompt(dialogue):
-    """Inject dialogue into prompt template."""
-    return PROMPT_TEMPLATE.replace("{{DIALOGUE}}", dialogue)
+# Run-together brand names the avatar TTS mangles (reads "OpenAI" as one garbled
+# word). Splitting into spaced parts makes it pronounce each piece clearly. This
+# ONLY touches the spoken dialogue — captions keep the original spelling. Applied
+# in code so a bad script (AI ignored the "write it spaced" prompt rule) is fixed
+# deterministically every run, never manually.
+BRAND_PRONUNCIATION = {
+    "OpenAI": "Open AI",
+    "ChatGPT": "Chat GPT",
+    "DeepMind": "Deep Mind",
+    "DeepSeek": "Deep Seek",
+    "YouTube": "You Tube",
+    "GitHub": "Git Hub",
+    "PayPal": "Pay Pal",
+    "OnePlus": "One Plus",
+    "WhatsApp": "Whats App",
+    "DeepFake": "Deep Fake",
+    "MidJourney": "Mid Journey",
+}
 
 
-def generate_video(prompt, image_b64, aspect="landscape", duration=6):
-    """Call Flow API to generate video. Returns video URL or raises."""
+def normalize_pronunciation(dialogue: str) -> str:
+    """Fix run-together brand names for the avatar TTS. Word-boundary safe so
+    'OpenAI' → 'Open AI' but longer tokens containing it aren't broken."""
+    import re
+    out = dialogue
+    for bad, good in BRAND_PRONUNCIATION.items():
+        out = re.sub(rf"\b{re.escape(bad)}\b", good, out)
+    return out
+
+
+def build_prompt(dialogue, duration=10):
+    """Inject dialogue and clip duration into prompt template."""
+    dialogue = normalize_pronunciation(dialogue)
+    return (PROMPT_TEMPLATE
+            .replace("{{DIALOGUE}}", dialogue)
+            .replace("{{DURATION}}", str(duration)))
+
+
+def _recent_video_from_history(since_ts, timeout=10):
+    """After a dropped connection the video is often ALREADY generated on Flow's
+    side (credits got charged) — it just never made it back in the response. Flow
+    records every generation in /v1/history, so we look there for a video created
+    at/after this request started and reuse its URL instead of burning fresh
+    credits on a blind retry. Returns a URL or None."""
+    try:
+        req = urllib.request.Request(f"{FLOW_API_URL}/v1/history")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log(f"History lookup failed: {e}")
+        return None
+    vids = [h for h in data.get("history", [])
+            if h.get("type") == "video" and h.get("url")
+            and h.get("timestamp", 0) >= since_ts - 5]
+    if not vids:
+        return None
+    vids.sort(key=lambda h: h.get("timestamp", 0), reverse=True)
+    log(f"Recovered generated video from history (no re-charge): {vids[0]['url']}")
+    return vids[0]["url"]
+
+
+# Errors that mean "the request didn't complete cleanly" but the generation may
+# still have run server-side — safe to check history / retry, NOT a hard failure.
+_TRANSIENT = (
+    urllib.error.URLError,          # includes RemoteDisconnected, conn reset
+    ConnectionError,
+    TimeoutError,
+    http.client.IncompleteRead,
+    http.client.RemoteDisconnected,
+)
+
+
+def generate_video(prompt, image_b64, aspect="landscape", duration=6, attempts=3):
+    """Call Flow API to generate video. Returns video URL or raises.
+
+    On a transient/connection-drop error, first tries to RECOVER the already-
+    generated clip from /v1/history (credits were charged — don't waste them),
+    and only if that fails does it retry the generation, with backoff. This makes
+    the 'credit kata par video kho gayi' failure self-healing on every run."""
     payload = {
         "prompt": prompt,
         "aspect": aspect,
@@ -137,28 +224,50 @@ def generate_video(prompt, image_b64, aspect="landscape", duration=6):
         "duration": duration,
         "image_base64": image_b64,
     }
-
     data_bytes = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        f"{FLOW_API_URL}/v1/videos/generations",
-        data=data_bytes,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
 
-    log("Sending video generation request to Flow API...")
-    log("This may take 5-10 minutes. Please wait...")
+    last_err = None
+    for attempt in range(1, attempts + 1):
+        req_started = int(time.time())
+        req = urllib.request.Request(
+            f"{FLOW_API_URL}/v1/videos/generations",
+            data=data_bytes,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        if attempt == 1:
+            log("Sending video generation request to Flow API...")
+            log("This may take 5-10 minutes. Please wait...")
+        else:
+            log(f"Generation retry {attempt}/{attempts}...")
 
-    with urllib.request.urlopen(req, timeout=700) as resp:
-        if resp.status != 200:
-            raise RuntimeError(f"Flow API error: HTTP {resp.status}")
-        res_data = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=700) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Flow API error: HTTP {resp.status}")
+                res_data = json.loads(resp.read().decode("utf-8"))
+            videos = res_data.get("data", [])
+            if not videos:
+                raise RuntimeError("No video returned by Flow API.")
+            return videos[0]["url"]
 
-    videos = res_data.get("data", [])
-    if not videos:
-        raise RuntimeError("No video returned by Flow API.")
+        except _TRANSIENT as e:
+            last_err = e
+            log(f"Connection issue ({type(e).__name__}: {str(e)[:80]}) — "
+                f"checking if the video was generated anyway...")
+            # give Flow a moment to finish writing the history entry
+            time.sleep(8)
+            recovered = _recent_video_from_history(req_started)
+            if recovered:
+                return recovered
+            if attempt < attempts:
+                backoff = 20 * attempt
+                log(f"Not in history yet — retrying in {backoff}s...")
+                time.sleep(backoff)
+            continue
 
-    return videos[0]["url"]
+    raise RuntimeError(f"Video generation failed after {attempts} attempts "
+                       f"(and history recovery): {last_err}")
 
 
 def download_video(url, output_path):
@@ -231,7 +340,7 @@ def main():
         sys.exit(1)
 
     # Build prompt
-    prompt = build_prompt(args.dialogue)
+    prompt = build_prompt(args.dialogue, args.duration)
 
     if args.dry_run:
         print("=== DRY RUN — Generated Prompt ===")

@@ -14,6 +14,7 @@ Migrated from reel-factory/scripts/process_avatar.py (logic unchanged; paths via
 """
 import argparse
 import json
+import re
 import subprocess
 import shutil
 import sys
@@ -424,16 +425,31 @@ STRICT RULES:
 
 
 def normalize_audio(video_path, scene_num):
-    """Normalize avatar audio to -14.0 LUFS for consistent loudness across scenes.
+    """Clean + normalize avatar audio for a natural voice-only track.
 
-    Uses ffmpeg loudnorm filter with video copy (no re-encode). Non-fatal: if
-    normalization fails the original trimmed clip is kept unchanged.
+    Veo-generated avatar clips carry a low-level background ambience/hum (~-24 dB)
+    plus room tone that continues even after speech ends. Amplified at render
+    time (volume 1.4) this reads as a stray "b-roll-like" background sound. We
+    strip it with a high-pass (kills sub-200 Hz rumble/hum), a gentle low-pass
+    (tames hiss), and a noise gate (silences the between-words room tone), then
+    loudnorm to -14.0 LUFS for consistent loudness across scenes.
+
+    Uses video copy (no re-encode). Non-fatal: if it fails the original trimmed
+    clip is kept unchanged.
     """
     temp_path = video_path.with_name(f"{video_path.stem}_norm.mp4")
+    # Chain: high-pass 90Hz → low-pass 8kHz → noise gate → loudnorm.
+    # gate: below -32 dB attenuates to near-silence, so ambient tone during
+    # non-speech gaps drops out while speech (well above threshold) passes clean.
+    afilter = (
+        "[0:a]highpass=f=90,lowpass=f=8000,"
+        "agate=threshold=0.025:ratio=4:attack=8:release=180,"
+        "loudnorm=I=-14:TP=-1.0[a]"
+    )
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),
-        "-filter_complex", "[0:a]loudnorm=I=-14:TP=-1.0[a]",
+        "-filter_complex", afilter,
         "-map", "0:v", "-map", "[a]",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         str(temp_path)
@@ -442,12 +458,49 @@ def normalize_audio(video_path, scene_num):
         subprocess.run(cmd, check=True, capture_output=True)
         video_path.unlink()
         temp_path.rename(video_path)
-        log(scene_num, "🔊 Audio normalized to -14.0 LUFS")
+        log(scene_num, "🔊 Audio cleaned (denoise + gate) + normalized to -14.0 LUFS")
     except subprocess.CalledProcessError as e:
         log(scene_num, f"⚠️ Audio normalization failed (non-fatal): "
                        f"{e.stderr[-200:] if e.stderr else e}")
         if temp_path.exists():
             temp_path.unlink()
+
+
+def detect_speech_end_audio(video_path, fallback_end):
+    """Find where trailing dead air begins by actually listening to the clip.
+
+    ElevenLabs alignment sometimes reports a last-word `end` that lands PAST the
+    real speech (even past the clip length) — e.g. 9.5s on an 8.2s clip. When that
+    happens the silence-trim interval covers the whole clip and ~2s of trailing
+    dead air survives. So we probe the real audio: the start of the LAST silence
+    run (≥0.5s below -35 dB) is the true speech end. Returns that time, or
+    `fallback_end` if no trailing silence is found / detection fails.
+    """
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-i", str(video_path),
+             "-af", "silencedetect=noise=-35dB:d=0.5", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=60)
+        clip_dur = None
+        m_dur = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", proc.stderr)
+        if m_dur:
+            h, mi, s = m_dur.groups()
+            clip_dur = int(h) * 3600 + int(mi) * 60 + float(s)
+        starts = re.findall(r"silence_start:\s*([\d.]+)", proc.stderr)
+        ends = re.findall(r"silence_end:\s*([\d.]+)", proc.stderr)
+        if not starts:
+            return fallback_end
+        last_start = float(starts[-1])
+        # Only treat it as trailing silence if that last silence runs to the end
+        # of the clip (no silence_end after it, or it ends at clip_dur).
+        trailing = len(ends) < len(starts)  # last silence never closed = runs to EOF
+        if not trailing and clip_dur is not None and ends:
+            trailing = abs(float(ends[-1]) - clip_dur) < 0.15
+        if trailing:
+            return last_start
+        return fallback_end
+    except Exception:
+        return fallback_end
 
 
 def main():
@@ -527,6 +580,17 @@ def main():
             clip_dur = speech_end + TAIL_PAD
         speech_start = max(0.0, float(speech_start) - 0.05)
         speech_end = min(clip_dur, float(speech_end) + TAIL_PAD)
+
+        # Guard against bad alignment: if ElevenLabs reported a last-word end past
+        # the real speech (leaving ~2s of trailing dead air), clamp to where the
+        # audio actually goes silent. Take the EARLIER of the two + a tail pad so a
+        # genuinely-full clip is untouched but a silent tail always gets cut.
+        audio_end = detect_speech_end_audio(raw_video, speech_end)
+        clamped_end = min(speech_end, audio_end + TAIL_PAD)
+        if clamped_end < speech_end - 0.1:
+            log(scene_num, f"✂️  Trailing silence: alignment end {speech_end:.2f}s → "
+                           f"audio end {audio_end:.2f}s (cutting {speech_end - clamped_end:.2f}s dead air)")
+            speech_end = clamped_end
 
         log(scene_num, f"Speech detected: {speech_start}s to {speech_end}s "
                        f"(Duration: {speech_end - speech_start:.2f}s)")

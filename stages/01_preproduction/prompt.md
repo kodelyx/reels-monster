@@ -17,7 +17,7 @@ Decision rules:
 
 SCENE LENGTH IS STORY-DRIVEN, NOT FIXED. Do NOT force a fixed seconds-per-scene.
 - Each scene should be as long as its idea needs — a punchy hook may be short, a reveal may be longer. Natural spoken lines run ~8-10 seconds each; a single avatar clip must stay ≤10s (hard cap), so if an idea needs more, split it into two scenes.
-- Choose `num_scenes` by how many distinct story beats the topic has (typically 4-6 for a reel). `scene_seconds` in the brief is just the ROUGH AVERAGE you expect (~8-9), used for planning — the scriptwriter writes each line to its natural length, not to a fixed word count.
+- Choose `num_scenes` by how many distinct story beats the topic has, sized to the **target duration** ({duration}s) — a ~60-70s reel needs roughly 7-9 beats so the story is fully covered, not rushed. Do NOT under-scene a 60s+ target into 4-5 beats. `scene_seconds` in the brief is just the ROUGH AVERAGE you expect (~8-9), used for planning — the scriptwriter writes each line to its natural length, not to a fixed word count. Sanity check: `num_scenes` × `scene_seconds` should land near {duration}s.
 
 ---
 
@@ -107,10 +107,10 @@ Reply with ONLY this JSON:
     "language": "Hindi",
     "tone": "3-5 adjectives",
     "audience": "who this video is for",
-    "duration_seconds": 30,
+    "duration_seconds": {duration},
     "format": "landscape (16:9) | portrait (9:16)",
-    "num_scenes": 5,
-    "scene_seconds": 6,
+    "num_scenes": "<int, sized to {duration}s — see scene rule above>",
+    "scene_seconds": "<int avg, ~8-9>",
     "why_it_will_hook": "one sentence on what makes this impossible to scroll past",
     "research_needed": true
   },

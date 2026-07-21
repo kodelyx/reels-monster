@@ -46,10 +46,16 @@ def check_flow_credits(config):
     if requests is None:
         return False, "requests not installed"
     try:
-        r = requests.get(f"{base}/v1/credits", timeout=6)
+        # Aggregating credits across many connected clients (17+) can take
+        # >6s, so give the probe generous headroom — a slow-but-alive server
+        # must not be misread as "unreachable" and block the whole pipeline.
+        r = requests.get(f"{base}/v1/credits", timeout=30)
         data = r.json()
     except Exception as e:
         return False, f"Flow API unreachable at {base} ({str(e)[:60]})"
+    if "total_credits" in data:
+        n = data["total_credits"]
+        return (n > 0), f"{n} credits"
     if "credits" in data:
         n = data["credits"]
         return (n > 0), f"{n} credits"
@@ -116,13 +122,24 @@ def check_gemini(config):
 
 def run(config, paths: PATHS):
     """Returns (all_ok, blocking_list). Prints a report."""
+    from core.config import elevenlabs_api_key
     print("🔍 Pre-flight check for media stages\n")
     checks = [
         ("Avatar image", check_avatar_image(paths)),
         ("Flow API + credits (avatar/broll)", check_flow_credits(config)),
-        ("ChatGPT server (captions)", check_chatgpt(config)),
         ("Gemini API (music/trim)", check_gemini(config)),
     ]
+    # ChatGPT check: only blocking if ElevenLabs key is missing (ChatGPT is fallback)
+    elevenlabs_key = elevenlabs_api_key(config)
+    chatgpt_ok, chatgpt_msg = check_chatgpt(config)
+    if elevenlabs_key:
+        # ElevenLabs primary, ChatGPT optional fallback
+        status = f"{chatgpt_msg} (fallback only, ElevenLabs primary)"
+        print(f"  {OK if chatgpt_ok else '⚠️ '} ChatGPT server (captions fallback): {status}")
+    else:
+        # No ElevenLabs — ChatGPT is required
+        checks.append(("ChatGPT server (captions)", (chatgpt_ok, chatgpt_msg)))
+
     blocking = []
     for name, (ok, msg) in checks:
         print(f"  {OK if ok else BAD} {name}: {msg}")

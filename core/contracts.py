@@ -36,6 +36,12 @@ class File:
 
     def resolve(self, paths, n: str | int = "") -> Path:
         p = self.path.replace("{n}", str(n))
+        # Wildcard support: if path has *, glob and return first match
+        if "*" in p:
+            import glob
+            matches = list(glob.glob(str(paths.ROOT / p)))
+            if matches:
+                return Path(matches[0])
         return (paths.ROOT / p)
 
     def _check_one(self, fp: Path) -> tuple[bool, str]:
@@ -121,7 +127,7 @@ CONTRACTS = {
     ),
     "05_avatar": Contract(
         requires=[File("project/scripting/script.json", "json", must_have=["segments"]),
-                  File("profile/avatar.jpg", "image")],
+                  File("profile/avatar.*", "image")],  # accepts .jpg/.png/.jpeg/.webp
         produces=[File("project/avatar/scene_{n}.mp4", "mp4", per_scene=True)],
     ),
     "06_process": Contract(
@@ -148,7 +154,7 @@ CONTRACTS = {
     ),
     "11_final_trim": Contract(
         requires=[File("output/final.mp4", "mp4")],
-        produces=[File("output/final_trimmed.mp4", "mp4")],
+        produces=[File("output/final.mp4", "mp4")],
     ),
 }
 

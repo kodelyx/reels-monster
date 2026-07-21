@@ -11,6 +11,7 @@ Usage:
     cfg = load_config(project_root)      # dict of endpoints/keys from config.env
     p = PATHS(project_root)              # all derived paths (project-relative)
 """
+import json
 import os
 from pathlib import Path
 
@@ -37,6 +38,11 @@ class PATHS:
         self.SCRIPTING = self.PROJECT / "scripting"
         self.AVATAR = self.PROJECT / "avatar"
         self.BROLL = self.PROJECT / "broll"
+        # Watermark-cleaned copies (originals in AVATAR/BROLL stay untouched, so a
+        # bad clean can always be re-done from the source). Remotion renders from
+        # these — public/avatar & public/broll symlink here, not at the originals.
+        self.AVATAR_CLEAN = self.PROJECT / "avatar_clean"
+        self.BROLL_CLEAN = self.PROJECT / "broll_clean"
         self.MUSIC = self.PROJECT / "music"
         self.INTERVALS = self.PROJECT / "intervals"
 
@@ -116,7 +122,8 @@ def load_config(project_root) -> dict:
                 "GEMINI_MUSIC_URL", "GEMINI_MCP_BIN",
                 "GEMINI_SERVER_BIN", "GEMINI_SERVER_DIR",
                 "CHATGPT_SERVER_BIN", "CHATGPT_SERVER_DIR",
-                "FLOW_SERVER_DIR", "ELEVENLABS_API_KEY", "ENABLE_POPUPS"):
+                "FLOW_SERVER_DIR", "ELEVENLABS_API_KEY", "ENABLE_POPUPS",
+                "KIE_API_KEY", "ENDCARD_SECONDS", "ENDCARD_HANDLE"):
         if os.environ.get(key):
             config[key] = os.environ[key]
 
@@ -150,6 +157,46 @@ def elevenlabs_api_key(config: dict) -> str:
     """ElevenLabs API key (from config.env — git-ignored, holds paid keys). Empty ⇒
     stage 06 falls back to the local ChatGPT bridge for word-timing."""
     return config.get("ELEVENLABS_API_KEY", "").strip()
+
+
+def kie_api_key(config: dict) -> str:
+    """kie.ai API key (paid — git-ignored .env). Used by stage 10 to generate the
+    end-card poster via GPT Image 2. Empty ⇒ the end-card is skipped and the render
+    just ends on the last scene."""
+    return config.get("KIE_API_KEY", "").strip()
+
+
+def endcard_seconds(config: dict) -> float:
+    """How long the end-card poster holds at the tail of the render (default 2.5s)."""
+    try:
+        return float(config.get("ENDCARD_SECONDS", "2.5"))
+    except (TypeError, ValueError):
+        return 2.5
+
+
+def endcard_handle(paths, config: dict) -> str:
+    """The @handle shown on the animated end-card. Read from the profile, NOT
+    hardcoded: profile.json `handle`/`instagram_handle` if set, else `creator_name`.
+    An explicit ENDCARD_HANDLE in config/.env still wins as an override. Always
+    returned with a leading '@'."""
+    def _at(v: str) -> str:
+        v = (v or "").strip().lstrip("@").strip()
+        return f"@{v}" if v else ""
+
+    override = _at(config.get("ENDCARD_HANDLE", ""))
+    if override:
+        return override
+    try:
+        prof = json.loads(paths.PROFILE_JSON.read_text(encoding="utf-8"))
+    except Exception:
+        prof = {}
+    for key in ("handle", "instagram_handle", "creator_name"):
+        h = _at(str(prof.get(key, "")))
+        if h:
+            return h
+    raise SystemExit(
+        "❌ profile.json has no handle/instagram_handle/creator_name for the "
+        "end-card @handle. Set one before running. Aborting.")
 
 
 def chatgpt_server_bin(config: dict) -> str:

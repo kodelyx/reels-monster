@@ -58,5 +58,8 @@ export type DocumentaryProps = {
     captionColor: string;
     transition?: 'crossfade' | 'zoom-dissolve' | 'slide' | 'none';
     overlapFrames?: number;
+    // Top headline (reference-reel style): punchy, uppercase, multi-colour words.
+    // Data-driven — injected by the render stage from topic.json. Absent ⇒ no title.
+    title?: { text: string; color: string }[];
   };
 };

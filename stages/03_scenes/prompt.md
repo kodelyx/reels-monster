@@ -47,6 +47,7 @@ Hard rules:
 - NO on-screen text, subtitles, logos, watermarks, UI of any kind.
 - Motion present but calm — alive, not frantic, not frozen.
 - KEEP IT DARK: deep shadows, night/dusk, never bright/overexposed.
+- **NO repetitive descriptions or stuttering phrases** — each element mentioned once only (e.g. ❌ "dark dark shadows", ❌ "slow slow drift"). Write clean, direct descriptions.
 
 ---
 

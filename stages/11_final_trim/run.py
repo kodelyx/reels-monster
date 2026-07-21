@@ -3,18 +3,20 @@
 
 Applies whole-video keep-interval cuts to the rendered composite so transitions
 sync tightly. Intervals come from a hand/auto-authored config; if it's absent this
-stage is a no-op that just aliases final.mp4 → final_trimmed.mp4.
+stage is a no-op (final.mp4 is already the finished video).
 
   requires:  output/final.mp4
   optional:  project/intervals/final.json  (list of [start,end] keep windows)
-  produces:  output/final_trimmed.mp4
+  produces:  output/final.mp4  (trimmed in place — no second file)
 
 Run:  python3 stages/11_final_trim/run.py -p /path/to/reels-monster
 Same engine as stage 06's silence trim (core/rapid_edit.py) — README Step 9.
 """
 import argparse
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 STAGE_DIR = Path(__file__).resolve().parent
@@ -38,27 +40,28 @@ def main():
 
     config = Path(args.config) if args.config else (paths.INTERVALS / "final.json")
     if not config.exists():
-        # No trim to apply — final_trimmed.mp4 would be a byte-for-byte copy of
-        # final.mp4 (a wasted ~24 MB duplicate). Point it at final.mp4 with a
-        # relative symlink instead: anything expecting output/final_trimmed.mp4
-        # still resolves to the exact same video, with no second render/copy.
-        log(f"ℹ️  No trim config ({paths.rel(config)}); linking final_trimmed.mp4 → final.mp4 (no duplicate).")
-        if paths.FINAL_TRIMMED.exists() or paths.FINAL_TRIMMED.is_symlink():
-            paths.FINAL_TRIMMED.unlink()
-        paths.FINAL_TRIMMED.symlink_to(paths.FINAL.name)  # relative: same output/ dir
-        log(f"✅ {paths.rel(paths.FINAL_TRIMMED)} → {paths.FINAL.name}")
+        # No trim to apply — final.mp4 is already the finished, ready-to-upload
+        # video. Do NOT produce a second file: the output folder must hold only
+        # final.mp4 + thumbnail.png, nothing else.
+        log(f"ℹ️  No trim config ({paths.rel(config)}); final.mp4 is already the final video (no extra file).")
         return
 
-    cmd = ["python3", str(RAPID_EDIT),
-           "-path", str(paths.FINAL),
-           "-out", str(paths.FINAL_TRIMMED),
-           "-config", str(config)]
-    log(f"✂️  Final trim via rapid_edit → {paths.rel(paths.FINAL_TRIMMED)}")
-    # rapid_edit writes temp_parts/ + concat_list.txt in cwd — keep them under output/.
-    proc = subprocess.run(cmd, cwd=str(paths.OUTPUT))
-    if proc.returncode != 0 or not paths.FINAL_TRIMMED.exists():
-        raise SystemExit(f"❌ Final trim failed (exit {proc.returncode}).")
-    log(f"✅ {paths.rel(paths.FINAL_TRIMMED)}")
+    # Trim into a private scratch dir (rapid_edit also drops temp_parts/ + a
+    # concat_list.txt in its cwd), then replace final.mp4 in place so the output
+    # folder stays clean — just the one finished video.
+    with tempfile.TemporaryDirectory(prefix="reels_trim_") as tmp:
+        tmpd = Path(tmp)
+        trimmed = tmpd / "final_trimmed.mp4"
+        cmd = ["python3", str(RAPID_EDIT),
+               "-path", str(paths.FINAL),
+               "-out", str(trimmed),
+               "-config", str(config)]
+        log(f"✂️  Final trim via rapid_edit → {paths.rel(paths.FINAL)}")
+        proc = subprocess.run(cmd, cwd=str(tmpd))
+        if proc.returncode != 0 or not trimmed.exists():
+            raise SystemExit(f"❌ Final trim failed (exit {proc.returncode}).")
+        shutil.copyfile(trimmed, paths.FINAL)
+    log(f"✅ {paths.rel(paths.FINAL)}")
 
 
 if __name__ == "__main__":

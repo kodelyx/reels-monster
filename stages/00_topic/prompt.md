@@ -11,7 +11,7 @@ The topic you select must pass this strict checklist:
 1. **The Hook (0-2s):** Can it start with a shocking, curiosity-inducing statement in simple spoken Hindi (Devanagari)?
 2. **Visual Feasibility:** Is it easy for text-to-video AI (like Veo) to render in high quality? (Prefer cosmic environments, quantum particles, advanced machines, textures; avoid complex human-actor scenes).
 3. **Wow Factor:** Does it have at least one mind-blowing fact that forces viewers to comment or share?
-4. **Short-Form Friendly:** Can the concept be explained in 30-40 seconds (under 100 Hindi words)?
+4. **Short-Form Friendly:** Can the concept be explained in 60-80 seconds (roughly 130-170 Hindi words) — enough to cover the full story without rushing, but not so thin it needs padding?
 
 ---
 

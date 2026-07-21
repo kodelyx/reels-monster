@@ -1,9 +1,12 @@
 import { AbsoluteFill, Audio, Sequence, interpolate, spring, staticFile, useCurrentFrame } from 'remotion';
 import { loadFont } from '@remotion/google-fonts/Montserrat';
+import { loadFont as loadCaptionFont } from '@remotion/google-fonts/Mukta';
 import * as SI from 'simple-icons';
 import type { PopupConfig } from './types';
 
 const { fontFamily: POPUP_FONT } = loadFont();
+// Same font the karaoke captions use, so popup text matches the caption look.
+const { fontFamily: CAPTION_FONT } = loadCaptionFont();
 
 // ─────────────────────────────────────────────
 // SOUND SYSTEM
@@ -199,11 +202,6 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
         const rise = interpolate(sp, [0, 1], [26, 0]);   // slide up into place
         const enterBlur = interpolate(since, [0, 10], [10, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
         const floatY = Math.sin(lf * 0.09 + i * 2) * 6;
-        const glowPulse = c.accent ? 0.5 + Math.sin(lf * 0.13) * 0.22 : 0.32 + Math.sin(lf * 0.08 + i) * 0.08;
-
-        // Specular sheen sweep: a diagonal highlight that glides across once on entry.
-        const sheen = interpolate(since, [4, 26], [-140, 140], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        const sheenOp = interpolate(since, [4, 15, 26], [0, 0.5, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
         // Vertical nudge if a slot repeats, so cards never overlap
         const slot = c.slot in SLOT_X ? c.slot : (['left', 'center', 'right'][i % 3] as 'left' | 'center' | 'right');
@@ -213,66 +211,41 @@ const PopupScene: React.FC<{ config: PopupConfig; fps: number; dur: number }> = 
 
         return (
           <div key={`card${i}`} style={{
-            ...G,
+            position: 'absolute',
             left: SLOT_X[slot], top: `calc(50% - ${CARD / 2}px + ${topOffset}px)`,
             width: CARD, height: CARD,
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
             transform: `scale(${scale}) translateY(${floatY + rise}px)`,
             opacity,
             filter: enterBlur > 0.2 ? `blur(${enterBlur}px)` : undefined,
-            boxShadow: [
-              '0 26px 60px rgba(0,0,0,0.65)',                                   // ambient drop
-              `0 0 ${Math.round(56 * glowPulse)}px ${hexA(c.color, c.accent ? 0.5 : 0.28)}`, // color bloom
-              `inset 0 1px 0 rgba(255,255,255,0.18)`,                           // top inner light
-            ].join(', '),
           }}>
-            {/* gradient hairline border (mask ring) */}
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: RADIUS, padding: c.accent ? 2.5 : 1.6,
-              background: `linear-gradient(150deg, ${hexA(c.color, c.accent ? 0.95 : 0.6)}, rgba(255,255,255,0.28) 45%, ${hexA(c.color, 0.15)})`,
-              WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-              WebkitMaskComposite: 'xor', maskComposite: 'exclude', pointerEvents: 'none',
-            }} />
-            {/* accent hero: rotating conic aura ring */}
-            {c.accent && (
-              <div style={{
-                position: 'absolute', inset: -2, borderRadius: RADIUS + 2, opacity: 0.5 + Math.sin(lf * 0.13) * 0.2,
-                background: `conic-gradient(from ${lf * 3}deg, ${hexA(c.color, 0)}, ${hexA(c.color, 0.85)} 120deg, ${hexA(c.color, 0)} 240deg)`,
-                filter: 'blur(9px)', pointerEvents: 'none',
-              }} />
-            )}
-            {/* top glossy highlight */}
-            <div style={{
-              position: 'absolute', top: 0, left: 0, right: 0, height: '46%', borderRadius: `${RADIUS}px ${RADIUS}px 0 0`,
-              background: 'linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0))', pointerEvents: 'none',
-            }} />
-            {/* specular sheen sweep on entry */}
-            <div style={{
-              position: 'absolute', top: 0, bottom: 0, width: 70, left: `calc(50% + ${sheen}px)`,
-              transform: 'skewX(-18deg)', opacity: sheenOp,
-              background: 'linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.55), rgba(255,255,255,0))',
-              pointerEvents: 'none',
-            }} />
-
-            {/* icon with glowing halo disc */}
+            {/* icon with a soft colored glow — no card, floats free over the video */}
             <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <div style={{
-                position: 'absolute', width: 118, height: 118, borderRadius: '50%',
-                background: `radial-gradient(circle, ${hexA(c.color, c.accent ? 0.42 : 0.28)} 0%, ${hexA(c.color, 0)} 70%)`,
-                filter: 'blur(2px)', pointerEvents: 'none',
+                position: 'absolute', width: 132, height: 132, borderRadius: '50%',
+                background: `radial-gradient(circle, ${hexA(c.color, c.accent ? 0.55 : 0.40)} 0%, ${hexA(c.color, 0)} 70%)`,
+                filter: 'blur(3px)', pointerEvents: 'none',
+                opacity: 0.7 + Math.sin(lf * 0.11 + i) * 0.15,
               }} />
-              <div style={{ filter: `drop-shadow(0 3px 10px ${hexA(c.color, 0.55)})`, display: 'flex' }}>
-                <IconView icon={c.icon} color={c.color} size={72} />
+              <div style={{ filter: `drop-shadow(0 3px 12px ${hexA(c.color, 0.7)})`, display: 'flex' }}>
+                <IconView icon={c.icon} color={c.color} size={92} />
               </div>
             </div>
 
+            {/* label — styled exactly like the karaoke captions: Mukta, bold, white
+                with a heavy dark outline/shadow so it reads over any video, no box */}
             <div style={{
-              fontFamily: POPUP_FONT, fontSize: 25, fontWeight: 900, marginTop: 10, color: '#FFFFFF',
-              letterSpacing: 0.5, textAlign: 'center', padding: '0 8px', lineHeight: 1.1,
-              textShadow: `0 2px 10px ${hexA(c.color, 0.7)}, 0 1px 3px rgba(0,0,0,0.9)`,
+              fontFamily: CAPTION_FONT, fontSize: 40, fontWeight: 800, marginTop: 16, color: '#FFFFFF',
+              letterSpacing: 0.5, textAlign: 'center', padding: '0 4px', lineHeight: 1.12,
+              textTransform: 'uppercase',
+              textShadow: '0 3px 0 rgba(0,0,0,0.85), 0 0 14px rgba(0,0,0,0.75), 0 2px 6px rgba(0,0,0,0.9)',
+              WebkitTextStroke: '1px rgba(0,0,0,0.55)',
             }}>{c.label}</div>
             {c.sub && <div style={{
-              fontFamily: POPUP_FONT, fontSize: 20, fontWeight: 800, color: '#FFFFFF', marginTop: 8, letterSpacing: 0.3,
-              textShadow: `0 1px 6px ${hexA(c.color, 0.75)}, 0 1px 3px rgba(0,0,0,0.9)`,
+              fontFamily: CAPTION_FONT, fontSize: 30, fontWeight: 700, color: '#FFFFFF', marginTop: 8, letterSpacing: 0.3,
+              textAlign: 'center', lineHeight: 1.12, textTransform: 'uppercase',
+              textShadow: '0 2px 0 rgba(0,0,0,0.85), 0 0 12px rgba(0,0,0,0.7), 0 1px 4px rgba(0,0,0,0.9)',
+              WebkitTextStroke: '0.75px rgba(0,0,0,0.5)',
             }}>{c.sub}</div>}
           </div>
         );

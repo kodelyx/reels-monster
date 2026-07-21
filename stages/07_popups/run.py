@@ -26,6 +26,7 @@ STAGE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(STAGE_DIR.parents[1]))
 from core.config import PATHS, load_config, ai_model
 from core.ai_client import get_api_keys, call_ai, log
+from core.title import resolve_title_words
 
 # Icons the Remotion renderer understands natively (curated SVG set).
 CURATED_SVG = {"chatgpt", "robot", "check", "code", "brain", "human",
@@ -387,6 +388,18 @@ def main():
         except Exception as e:
             scene["popup"] = fallback_popup(scene_ms, valid_sfx_keys)
             log(f"   ⚠️ scene {scene.get('index', i)} AI failed ({str(e)[:80]}) → generic popup")
+
+    # ── Bake the top headline into style.title so the STUDIO and the RENDER show
+    # the SAME title (no mismatch). Documentary.tsx renders style.title directly;
+    # both read this one caption.json. Sourced from pre_production.json brief.title.
+    title_words = resolve_title_words(paths)
+    if title_words:
+        data.setdefault("style", {})["title"] = title_words
+        preview = " ".join(w["text"] for w in title_words if w["text"] != "\n")
+        log(f"   🏷️  Title baked into style.title: “{preview}”")
+    else:
+        log("   ⚠️  No title found (pre_production brief.title / topic.json) — "
+            "rendering without a headline.")
 
     cap_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     log(f"💾 Saved popups into {cap_path}")

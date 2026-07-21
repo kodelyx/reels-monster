@@ -9,7 +9,10 @@ import urllib.error
 # Load config.env so this MCP process sees the same ports/settings as the
 # backend, even when launched standalone by an AI client.
 def _load_env_files():
-    root = os.path.dirname(os.path.abspath(__file__))
+    if getattr(sys, 'frozen', False):
+        root = os.path.dirname(sys.executable)
+    else:
+        root = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(root, "config.env")
     if not os.path.exists(path):
         return
@@ -161,7 +164,18 @@ def call_get_flow_credits():
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
-                credits = data.get("credits", "unknown")
+                # New fan-out format: total across all connected browsers.
+                if isinstance(data, dict) and "total_credits" in data:
+                    total = data.get("total_credits", 0)
+                    clients = data.get("clients", [])
+                    ok = sum(1 for c in clients if c.get("ok"))
+                    failed = len(clients) - ok
+                    line = (f"Total Google Flow credits across all connected browsers: {total} "
+                            f"({ok} clients ready" + (f", {failed} failed" if failed else "") + ")")
+                    return line
+                # Single-client format (X-Client-Id or legacy).
+                inner = data.get("data", data) if isinstance(data, dict) else {}
+                credits = inner.get("credits", "unknown")
                 return f"Remaining Google Flow credits/generations: {credits}"
             return f"Error from Flow API ({response.status})"
     except urllib.error.HTTPError as e:

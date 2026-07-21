@@ -15,6 +15,7 @@ Migrated from reel-factory/scripts/broll_generator.py (logic unchanged; paths vi
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -106,8 +107,24 @@ def _generate_and_download(scene_num, prompt, paths, flow_url, duration, suffix=
 
         dest = paths.BROLL / f"scene_{scene_num}{suffix}.mp4"
         if temp_file.exists() and temp_file.stat().st_size > 0:
-            shutil.move(str(temp_file), str(dest))
-            log(scene_num, f"✅ Saved: {paths.rel(dest)}")
+            # B-roll is a SILENT top-panel visual — the only audio in the final
+            # render is the avatar voice + bg music. Veo returns clips WITH a
+            # background music/ambient track, which leaks into the render if the
+            # Remotion `muted` prop is ever missed. Strip the audio stream at the
+            # source (-an) so a leak is physically impossible. Falls back to a
+            # plain move if ffmpeg is unavailable.
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(temp_file),
+                     "-c:v", "copy", "-an", str(dest)],
+                    check=True, capture_output=True,
+                )
+                temp_file.unlink(missing_ok=True)
+                log(scene_num, f"✅ Saved (audio stripped): {paths.rel(dest)}")
+            except Exception as e:
+                log(scene_num, f"⚠️ Audio strip failed ({e}); saving as-is.")
+                shutil.move(str(temp_file), str(dest))
+                log(scene_num, f"✅ Saved: {paths.rel(dest)}")
             return True
         log(scene_num, "❌ Download file invalid or empty.")
         return False

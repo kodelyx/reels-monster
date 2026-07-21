@@ -11,6 +11,7 @@ import {
 import { DocumentaryProps } from './types';
 import { KaraokeCaptions } from './KaraokeCaptions';
 import { PopupAsset } from './PopupAsset';
+import { TitleBar } from './TitleBar';
 
 // ---------------------------------------------------------------------------
 // Scene transition wrappers
@@ -325,26 +326,39 @@ export const Documentary: React.FC<DocumentaryProps> = ({ fps, scenes, pages, st
       );
     }
 
-    const videoElement = (
-      <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 38%, #23262f 0%, #14161c 45%, #05060a 100%)', display: 'flex', flexDirection: 'column', padding: 36, gap: 36 }}>
-        {/* Top Half: B-roll */}
-        <div style={{
-          width: '100%',
-          flex: 1,
-          minHeight: 0,
-          position: 'relative',
-          overflow: 'hidden',
-          borderRadius: 26,
-          border: '2px solid rgba(255, 255, 255, 0.22)',
-          boxShadow: '0 22px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(120, 150, 200, 0.10), inset 0 1px 24px rgba(255, 255, 255, 0.06)',
-        }}>
-          {wrappedBroll}
-        </div>
+    // Avatar audio crossfade. Since scenes overlap by `overlap` frames, two
+    // avatar clips play simultaneously during each transition. Without fading
+    // the audio, BOTH voices are heard at once ("2 voice" bug). Fade the
+    // incoming clip's voice up over the overlap window and the outgoing clip's
+    // voice down over its final overlap window so only one voice is ever loud.
+    const avatarVolume = (frame: number): number => {
+      const BASE = 1.4;
+      let v = BASE;
+      if (!isFirst && overlap > 0) {
+        // Fade in over the leading overlap window
+        v *= interpolate(frame, [0, overlap], [0, 1], {
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        });
+      }
+      if (!isLast && overlap > 0) {
+        // Fade out over the trailing overlap window
+        v *= interpolate(
+          frame,
+          [scene.durationInFrames - overlap, scene.durationInFrames],
+          [1, 0],
+          { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+        );
+      }
+      return v;
+    };
 
-        {/* Bottom Half: Avatar */}
+    const videoElement = (
+      <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 38%, #23262f 0%, #14161c 45%, #05060a 100%)', display: 'flex', flexDirection: 'column', paddingLeft: 36, paddingRight: 36, paddingTop: 320, paddingBottom: 180, gap: 56 }}>
+        {/* Top Half: Avatar — slightly TALLER than the b-roll (ref ratio ≈ 1.13:1) */}
         <div style={{
           width: '100%',
-          flex: 1,
+          flex: 1.13,
           minHeight: 0,
           position: 'relative',
           overflow: 'hidden',
@@ -359,13 +373,29 @@ export const Documentary: React.FC<DocumentaryProps> = ({ fps, scenes, pages, st
           {scene.avatarSrc ? (
             <OffthreadVideo
               src={staticFile(scene.avatarSrc)}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              volume={1.4}
+              // objectPosition top → keep the FACE in frame; any crop from
+              // 'cover' is taken off the BOTTOM (torso), not the head.
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 18%' }}
+              volume={avatarVolume}
               playbackRate={1.0}
             />
           ) : (
             <div style={{ color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>No Avatar</div>
           )}
+        </div>
+
+        {/* Bottom Half: B-roll — a touch shorter than the avatar */}
+        <div style={{
+          width: '100%',
+          flex: 1,
+          minHeight: 0,
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 26,
+          border: '2px solid rgba(255, 255, 255, 0.22)',
+          boxShadow: '0 22px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(120, 150, 200, 0.10), inset 0 1px 24px rgba(255, 255, 255, 0.06)',
+        }}>
+          {wrappedBroll}
         </div>
       </AbsoluteFill>
     );
@@ -386,6 +416,9 @@ export const Documentary: React.FC<DocumentaryProps> = ({ fps, scenes, pages, st
         <Audio src={staticFile('bg_music.mp3')} volume={bgMusicVolume} loop />
       </Sequence>
       {sequences}
+      {/* Top headline — reference-reel style (heavy condensed grunge font,
+          multi-line, per-word colour). Data-driven from style.title (topic.json). */}
+      {style.title && style.title.length > 0 && <TitleBar words={style.title} />}
       {/* Captions MUST stay at the root, after all Sequences */}
       <KaraokeCaptions pages={pages} gold={style.gold} color={style.captionColor} />
     </AbsoluteFill>

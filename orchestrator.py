@@ -23,6 +23,7 @@ Usage:
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,12 +32,63 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from core.config import PATHS, load_config, ai_model
 from core.contracts import ORDER, check as contract_check, get as get_contract
+from core.content_checks import verify as content_verify
 from core.state import State, PENDING, RUNNING, DONE, FAILED
 from core import preflight, media_utils
 from core.ai_client import log
 
 # Stages from this index onward hit external services → need preflight + verify.
 FIRST_MEDIA = ORDER.index("05_avatar")
+
+# One fixed log file in the project root, overwritten every run (no dated junk).
+LOG_FILE = ROOT / "run.log"
+# Remotion prints one "Rendered 5/1669" line PER FRAME; when stdout isn't a TTY
+# it uses newlines instead of \r, so a 1600-frame render dumps 1600 lines. Collapse
+# these into a single live-updating terminal line + one final count in the log.
+_PROGRESS_RE = re.compile(r"^\s*(Rendered|Encoded)\s+\d+\s*/\s*\d+")
+
+
+class _Tee:
+    """Write to several streams at once (terminal + log file)."""
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            s.write(data)
+            s.flush()
+
+    def flush(self):
+        for s in self._streams:
+            s.flush()
+
+
+def _run_and_stream(cmd, logfile, term) -> int:
+    """Run a stage subprocess, streaming its output live. Remotion's per-frame
+    progress lines are collapsed to ONE self-updating terminal line and a single
+    final count in the log, so both stay readable — no thousand-line dumps."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    pending = None  # last progress line not yet committed to the log
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        if _PROGRESS_RE.match(line):
+            pending = line.strip()
+            term.write(f"\r   {pending}\033[K")  # live single line, terminal only
+            term.flush()
+            continue
+        if pending is not None:  # a normal line ended the progress burst — commit final count
+            term.write(f"\r   {pending}\033[K\n"); term.flush()
+            logfile.write(f"   {pending}\n"); logfile.flush()
+            pending = None
+        term.write(line + "\n"); term.flush()
+        logfile.write(line + "\n"); logfile.flush()
+    if pending is not None:
+        term.write(f"\r   {pending}\033[K\n"); term.flush()
+        logfile.write(f"   {pending}\n"); logfile.flush()
+    proc.wait()
+    return proc.returncode
+
 
 
 # ─── stage resolution ─────────────────────────────────────────────────────────
@@ -139,7 +191,7 @@ def ai_verify(stage, facts, keys, config, model, use_ai):
 
 # ─── run one stage ────────────────────────────────────────────────────────────
 
-def run_stage(stage, paths, state, config, keys, model, use_ai) -> bool:
+def run_stage(stage, paths, state, config, keys, model, use_ai, logfile, term) -> bool:
     log(f"━━━ {stage} ━━━")
 
     ok, errs = contract_check(stage, "requires", paths)
@@ -150,16 +202,25 @@ def run_stage(stage, paths, state, config, keys, model, use_ai) -> bool:
 
     state.mark(stage, RUNNING)
     cmd = [sys.executable, str(paths.ROOT / "stages" / stage / "run.py"), "-p", str(paths.ROOT)]
-    proc = subprocess.run(cmd)
-    if proc.returncode != 0:
-        state.mark(stage, FAILED, error=f"run.py exited {proc.returncode}")
-        log(f"   ❌ {stage} exited {proc.returncode}")
+    rc = _run_and_stream(cmd, logfile, term)
+    if rc != 0:
+        state.mark(stage, FAILED, error=f"run.py exited {rc}")
+        log(f"   ❌ {stage} exited {rc}")
         return False
 
     ok, errs = contract_check(stage, "produces", paths)
     if not ok:
         state.mark(stage, FAILED, error="produces: " + "; ".join(errs))
         log(f"   ❌ output invalid:\n     - " + "\n     - ".join(errs))
+        return False
+
+    # Content-level gate: deterministic assertions on the ACTUAL content a stage
+    # must produce (e.g. the title is baked into caption.json), run BEFORE handover
+    # so a silent field-drop can't slip through to the next stage. No AI, no guess.
+    ok, probs = content_verify(stage, paths)
+    if not ok:
+        state.mark(stage, FAILED, error="content: " + "; ".join(probs))
+        log(f"   ❌ content check failed:\n     - " + "\n     - ".join(probs))
         return False
 
     facts = collect_facts(stage, paths)
@@ -192,6 +253,21 @@ def main():
     model = ai_model(config)
     state = State(paths.STATE)
 
+    # One fixed log file, truncated ('w') at the start of every run so the 2nd run
+    # auto-cleans the 1st — no dated files pile up. Everything printed via log()
+    # (stderr) is tee'd into it, and each stage's live output is streamed through
+    # _run_and_stream. Result: one readable run.log in the project root, every time.
+    real_stderr = sys.stderr
+    logfile = open(LOG_FILE, "w", encoding="utf-8")
+    sys.stderr = _Tee(real_stderr, logfile)
+    try:
+        return _run_pipeline(args, paths, config, model, state, logfile, real_stderr)
+    finally:
+        sys.stderr = real_stderr
+        logfile.close()
+
+
+def _run_pipeline(args, paths, config, model, state, logfile, term) -> int:
     stages = plan_stages(args)
     if args.resume:
         stages = [s for s in stages if not state.is_done(s)]
@@ -224,13 +300,13 @@ def main():
             return 1
 
     for s in stages:
-        if not run_stage(s, paths, state, config, keys, model, use_ai):
+        if not run_stage(s, paths, state, config, keys, model, use_ai, logfile, term):
             log("\n" + state.summary(ORDER))
             log(f"\n🛑 Stopped at {s}. Fix it, then: python3 orchestrator.py --resume")
             return 1
 
     log("\n" + state.summary(ORDER))
-    log("\n🎉 Pipeline complete! → output/final_trimmed.mp4")
+    log("\n🎉 Pipeline complete! → output/final.mp4")
     return 0
 
 

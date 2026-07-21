@@ -40,8 +40,10 @@ Write the final narration for ALL {num_scenes} scenes. Each line should be a FUL
 
 ## Language Rules
 - ONLY the "narration" field is in PURE HINDI (Devanagari). Everything else in English.
-- Common English loanwords REQUIRED wherever that's how Indians actually say it — spell in Devanagari (ब्लैक होल, ग्रैविटी, डी एन ए, सेंसर, नासा).
-- NO Roman/Latin letters ever in narration.
+- **English brand names, tech terms, and proper nouns stay in LATIN SCRIPT** (not Devanagari) so TTS pronounces them correctly: "OpenAI", "GPT-5.6", "AI", "database", "developers" — NEVER `ओपनएआई`, `जीपीटी`, `एआई`, `डेटाबेस`, `डेवलपर्स`. Mix Hindi + Latin naturally.
+- **Multi-word brand names that are written as one word MUST be split with a space so the TTS reads each part clearly:** write "Open AI" (not "OpenAI"), "You Tube" is fine as "YouTube", "Chat GPT" (not "ChatGPT"). The avatar TTS mangles run-together capitalized words — a space fixes the pronunciation.
+- Common English loanwords that are fully Indianized may use Devanagari (ब्लैक होल, ग्रैविटी, सेंसर).
+- **NO word repetition within a scene.** Each word/phrase appears once only — never stutter or repeat for emphasis (e.g. ❌ "पूरी की पूरी", ❌ "बड़ा बड़ा"). Say it once, move on.
 - Punctuation: AT MOST ONE comma per segment, question mark (?), and पूर्ण विराम (।). NEVER two+ commas in one segment (ElevenLabs inserts ~0.5-1.4s pause per comma → multi-second dead air).
 - Numbers in Hindi words (एक हज़ार, not 1000).
 

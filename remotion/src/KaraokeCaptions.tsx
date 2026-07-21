@@ -88,7 +88,12 @@ export const KaraokeCaptions: React.FC<{
     <div
       style={{
         position: 'absolute',
-        bottom: vertical ? 440 : 96,
+        // Sit in the gap between the two frames (avatar top / b-roll bottom).
+        // Gap centre sits a touch below the exact middle because the avatar
+        // panel is taller than the b-roll (ref ratio ≈ 1.13:1).
+        top: vertical ? '55.3%' : undefined,
+        bottom: vertical ? undefined : 96,
+        transform: vertical ? 'translateY(-50%)' : undefined,
         left: 0,
         width: '100%',
         textAlign: 'center',
